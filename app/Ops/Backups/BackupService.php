@@ -26,6 +26,9 @@ class BackupService
 
     public function run(string $type = 'manual', ?int $userId = null): Backup
     {
+        // Clear up anything a killed process left behind before starting another.
+        $this->reapAbandoned();
+
         $disk = (string) config('backup.disk');
         $started = Carbon::now();
 
@@ -74,6 +77,28 @@ class BackupService
         }
 
         return $backup->refresh();
+    }
+
+    /**
+     * Fail any run that was never finished.
+     *
+     * A killed process, a fatal error or a dropped worker leaves a row in
+     * `running` with nothing behind it — and because pruning deliberately skips
+     * running rows, it would sit there forever, reading as work in progress.
+     * Anything past the dump timeout plus a minute is not still dumping.
+     */
+    public function reapAbandoned(): int
+    {
+        $cutoff = Carbon::now()->subSeconds((int) config('backup.timeout_seconds') + 60);
+
+        return Backup::query()
+            ->where('status', 'running')
+            ->where('started_at', '<', $cutoff)
+            ->update([
+                'status' => Backup::FAILED,
+                'finished_at' => Carbon::now(),
+                'error' => 'The backup process was interrupted before it finished.',
+            ]);
     }
 
     /**

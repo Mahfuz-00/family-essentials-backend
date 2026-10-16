@@ -29,6 +29,10 @@ class BackupController extends Controller
 
     public function index(): JsonResponse
     {
+        // The registry is the operator's view of what happened, so resolve any run
+        // that died and never finished before reporting it.
+        $this->backups->reapAbandoned();
+
         return response()->json([
             'readiness' => $this->backups->readiness(),
             'backups' => BackupResource::collection(

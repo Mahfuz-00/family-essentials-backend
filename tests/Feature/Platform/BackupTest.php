@@ -147,6 +147,39 @@ class BackupTest extends TestCase
         $this->assertNotNull(Backup::query()->find($fresh->id));
     }
 
+    public function test_a_run_that_was_interrupted_is_reaped_rather_than_left_running(): void
+    {
+        $this->useFakeDumper();
+
+        $stale = Backup::create([
+            'filename' => 'backups/interrupted.dump',
+            'disk' => 'local',
+            'driver' => 'pg_dump',
+            'type' => 'manual',
+            'status' => 'running',
+            'started_at' => now()->subHours(3),
+        ]);
+
+        $inFlight = Backup::create([
+            'filename' => 'backups/current.dump',
+            'disk' => 'local',
+            'driver' => 'pg_dump',
+            'type' => 'manual',
+            'status' => 'running',
+            'started_at' => now(),
+        ]);
+
+        $reaped = app(BackupService::class)->reapAbandoned();
+
+        $this->assertSame(1, $reaped);
+        $this->assertSame(Backup::FAILED, $stale->refresh()->status);
+        $this->assertNotNull($stale->finished_at);
+        $this->assertStringContainsString('interrupted', (string) $stale->error);
+
+        // A run that is genuinely under way is left alone.
+        $this->assertSame('running', $inFlight->refresh()->status);
+    }
+
     public function test_readiness_states_the_gaps_instead_of_asserting_readiness(): void
     {
         $this->useFakeDumper(available: false);

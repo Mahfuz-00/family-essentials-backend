@@ -13,6 +13,12 @@ class BackupPruneCommand extends Command
 
     public function handle(BackupService $backups): int
     {
+        $reaped = $backups->reapAbandoned();
+
+        if ($reaped > 0) {
+            $this->line("marked {$reaped} interrupted run(s) as failed");
+        }
+
         $removed = $backups->prune();
 
         $this->line("removed {$removed} backup(s) past ".config('backup.retention_days').' days');
