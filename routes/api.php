@@ -23,6 +23,7 @@ use App\Http\Controllers\Api\V1\Requests\RequestBoardController;
 use App\Http\Controllers\Api\V1\Requests\RequestController;
 use App\Http\Controllers\Api\V1\Tenant\InvitationController as TenantInvitationController;
 use App\Http\Controllers\Api\V1\Tenant\MemberController as TenantMemberController;
+use App\Http\Controllers\Api\V1\Tenant\RoleController as TenantRoleController;
 use App\Http\Controllers\Api\V1\Tenant\TenantController as CurrentTenantController;
 use App\Http\Controllers\Api\V1\Voice\VoiceCallController;
 use App\Http\Controllers\Api\V1\Voice\VoiceConsentController;
@@ -106,6 +107,9 @@ Route::prefix('v1')->group(function () {
         Route::get('tenant/members', [TenantMemberController::class, 'index']);
         Route::patch('tenant/members/{user}', [TenantMemberController::class, 'update']);
         Route::delete('tenant/members/{user}', [TenantMemberController::class, 'destroy']);
+
+        // Roles & permissions: the capability matrix and role catalogue.
+        Route::get('tenant/roles', [TenantRoleController::class, 'index']);
 
         Route::get('tenant/invitations', [TenantInvitationController::class, 'index']);
         Route::post('tenant/invitations', [TenantInvitationController::class, 'store']);
