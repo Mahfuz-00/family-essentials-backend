@@ -14,6 +14,8 @@ use App\Http\Controllers\Api\V1\Pantry\EssentialController;
 use App\Http\Controllers\Api\V1\Places\GeofenceController;
 use App\Http\Controllers\Api\V1\Places\PlaceController;
 use App\Http\Controllers\Api\V1\Platform\AuditLogController as PlatformAuditLogController;
+use App\Http\Controllers\Api\V1\Platform\HealthController as PlatformHealthController;
+use App\Http\Controllers\Api\V1\Platform\IncidentController as PlatformIncidentController;
 use App\Http\Controllers\Api\V1\Platform\MetricsController as PlatformMetricsController;
 use App\Http\Controllers\Api\V1\Platform\TenantController as PlatformTenantController;
 use App\Http\Controllers\Api\V1\ProfileController;
@@ -81,6 +83,14 @@ Route::prefix('v1')->group(function () {
         ->prefix('platform')
         ->group(function () {
             Route::get('metrics', [PlatformMetricsController::class, 'index']);
+
+            // ---- Operations: system health and the incident log -------------
+            Route::get('health', [PlatformHealthController::class, 'index']);
+            Route::post('health/failed-jobs/{id}/retry', [PlatformHealthController::class, 'retryFailedJob']);
+
+            Route::get('incidents', [PlatformIncidentController::class, 'index']);
+            Route::post('incidents', [PlatformIncidentController::class, 'store']);
+            Route::patch('incidents/{incident}', [PlatformIncidentController::class, 'update']);
 
             // Declared before the model-bound route so "export" is not swallowed.
             Route::get('audit-logs/export', [PlatformAuditLogController::class, 'export']);
