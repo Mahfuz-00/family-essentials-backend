@@ -65,6 +65,81 @@ class RequestBoardTest extends TestCase
             ->assertJsonPath('counts.completed_today', 0);
     }
 
+    public function test_an_undated_unassigned_request_lands_in_the_backlog(): void
+    {
+        $tenant = $this->createTenant('Household A');
+        $me = $this->createMember($tenant, 'tenant_admin');
+
+        // The case that used to match no column at all, so a successful create
+        // looked like nothing had happened.
+        $this->createRequest($tenant, $me, ['title' => 'Bin bags']);
+
+        $this->withToken($this->tokenFor($me))
+            ->getJson('/api/v1/requests/board')
+            ->assertOk()
+            ->assertJsonPath('counts.backlog', 1)
+            ->assertJsonPath('counts.open', 1)
+            ->assertJsonPath('backlog.0.title', 'Bin bags');
+    }
+
+    public function test_a_future_dated_request_assigned_to_someone_else_is_backlog(): void
+    {
+        $tenant = $this->createTenant('Household A');
+        $me = $this->createMember($tenant, 'tenant_admin');
+        $other = $this->createMember($tenant, 'member');
+
+        $this->createRequest($tenant, $me, [
+            'title' => 'Next week',
+            'due_at' => now()->addWeek(),
+            'assignee_id' => $other->id,
+        ]);
+
+        $this->withToken($this->tokenFor($me))
+            ->getJson('/api/v1/requests/board')
+            ->assertOk()
+            ->assertJsonPath('counts.backlog', 1)
+            ->assertJsonPath('counts.overdue', 0)
+            ->assertJsonPath('counts.due_today', 0);
+    }
+
+    public function test_the_buckets_cover_every_open_request(): void
+    {
+        $tenant = $this->createTenant('Household A');
+        $me = $this->createMember($tenant, 'tenant_admin');
+        $other = $this->createMember($tenant, 'member');
+
+        $this->createRequest($tenant, $me, ['title' => 'Overdue', 'due_at' => now()->subDay(), 'assignee_id' => $me->id]);
+        $this->createRequest($tenant, $me, ['title' => 'Today', 'due_at' => now()->endOfDay()]);
+        $this->createRequest($tenant, $me, ['title' => 'Mine later', 'due_at' => now()->addWeek(), 'assignee_id' => $me->id]);
+        $this->createRequest($tenant, $me, ['title' => 'Undated']);
+        $this->createRequest($tenant, $me, ['title' => 'Someone else', 'assignee_id' => $other->id]);
+
+        $board = $this->withToken($this->tokenFor($me))
+            ->getJson('/api/v1/requests/board')
+            ->assertOk()
+            ->json();
+
+        // Every open request is visible in at least one bucket: nothing is lost.
+        $visible = collect([
+            ...$board['overdue'],
+            ...$board['due_today'],
+            ...$board['assigned_to_me'],
+            ...$board['backlog'],
+        ])->pluck('title')->unique()->sort()->values()->all();
+
+        $this->assertSame(
+            ['Mine later', 'Overdue', 'Someone else', 'Today', 'Undated'],
+            $visible,
+        );
+
+        // `open` counts distinct requests, so it is not the (overlapping) sum.
+        $this->assertSame(5, $board['counts']['open']);
+
+        // The overdue item is assigned to me too, so it is in two buckets.
+        $assigned = collect($board['assigned_to_me'])->pluck('title')->sort()->values()->all();
+        $this->assertSame(['Mine later', 'Overdue'], $assigned);
+    }
+
     public function test_requests_can_be_filtered_by_assignee_and_status(): void
     {
         $tenant = $this->createTenant('Household A');

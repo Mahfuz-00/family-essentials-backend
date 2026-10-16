@@ -49,6 +49,12 @@ class RequestController extends Controller
     {
         $attributes = $request->validated();
 
+        // Handing work to somebody else is a dispatch, and juniors may not do it —
+        // the policy is enforced on reassignment, so it must be enforced here too.
+        if (! empty($attributes['assignee_id'])) {
+            $this->authorize('dispatch', ServiceRequest::class);
+        }
+
         if (! empty($attributes['item_id'])) {
             $item = Item::query()->findOrFail($attributes['item_id']);
             $attributes['title'] = ($attributes['title'] ?? null) ?: $item->name;

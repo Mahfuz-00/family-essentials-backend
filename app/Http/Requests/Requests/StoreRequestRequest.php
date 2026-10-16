@@ -22,7 +22,10 @@ class StoreRequestRequest extends FormRequest
     {
         return [
             'item_id' => ['nullable', 'integer', Rule::exists('items', 'id')],
-            'title' => ['required_without:item_id', 'nullable', 'string', 'max:255'],
+            // `required_without` treats a present-but-null item_id as present, which
+            // made title optional and then dereferenced it. requiredIf on blank is
+            // the correct rule.
+            'title' => ['nullable', 'string', 'max:255', Rule::requiredIf(fn (): bool => blank($this->input('item_id')))],
             'quantity' => ['nullable', 'string', 'max:64'],
             'notes' => ['nullable', 'string', 'max:2000'],
             'category' => ['nullable', 'string', 'max:64'],

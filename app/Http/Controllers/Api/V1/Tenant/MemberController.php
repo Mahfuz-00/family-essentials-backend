@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api\V1\Tenant;
 
 use App\Audit\AuditRecorder;
-use App\Http\Controllers\Api\V1\Tenant\Concerns\AuthorizesTenantAdmin;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Tenancy\UpdateMemberRoleRequest;
 use App\Http\Resources\TenantMemberResource;
@@ -11,15 +10,23 @@ use App\Models\DeviceToken;
 use App\Models\ServiceRequest;
 use App\Models\TenantUser;
 use App\Models\User;
+use App\Tenancy\RoleCapabilities;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
+/**
+ * Household roster and membership administration.
+ *
+ * Authorization is entirely policy-driven (TenantUserPolicy, reading
+ * config/roles.php) so the rules cannot drift from what the dashboard claims.
+ */
 class MemberController extends Controller
 {
-    use AuthorizesTenantAdmin;
-
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
+        // Readable by any active member: the mobile assignee picker needs it.
+        $this->authorize('viewAny', TenantUser::class);
+
         $members = TenantUser::query()->with('user')->get();
 
         $userIds = $members->pluck('user_id')->all();
@@ -58,18 +65,38 @@ class MemberController extends Controller
 
     public function update(UpdateMemberRoleRequest $request, User $user): JsonResponse
     {
-        $this->authorizeTenantOwner($request);
+        $this->authorize('manageRoles', TenantUser::class);
 
         $membership = TenantUser::query()->where('user_id', $user->getKey())->firstOrFail();
+        $role = (string) $request->string('role');
+
+        abort_if(
+            $user->getKey() === $request->user()->getKey(),
+            422,
+            'You cannot change your own role.'
+        );
+
+        // Defence in depth. While self-changes are refused above, the only way to
+        // demote the last administrator would be for that administrator to demote
+        // themselves — so this branch is currently unreachable through the API. It
+        // stays because the invariant ("a household always has an admin") is what
+        // matters, not the path that happens to enforce it today.
+        abort_if(
+            $membership->canManageMembers()
+                && ! RoleCapabilities::allows('manage_roles', $role)
+                && $this->tenantAdminCount() <= 1,
+            422,
+            'A household needs at least one tenant administrator.'
+        );
 
         $previous = $membership->role;
-        $membership->update(['role' => $request->string('role')]);
+        $membership->update(['role' => $role]);
 
         app(AuditRecorder::class)->record('member.role_changed', [
             'member' => $user->name,
             'member_id' => $user->getKey(),
             'from' => $previous,
-            'to' => (string) $request->string('role'),
+            'to' => $role,
         ], 'warning');
 
         return (new TenantMemberResource($membership->load('user')))->response();
@@ -77,15 +104,16 @@ class MemberController extends Controller
 
     public function destroy(Request $request, User $user): JsonResponse
     {
-        $this->authorizeTenantOwner($request);
-
-        abort_if(
-            $user->getKey() === $request->user()->getKey(),
-            422,
-            'You cannot remove yourself from the household.'
-        );
+        $this->authorize('remove', [TenantUser::class, $user]);
 
         $membership = TenantUser::query()->where('user_id', $user->getKey())->firstOrFail();
+
+        abort_if(
+            $membership->canManageMembers() && $this->tenantAdminCount() <= 1,
+            422,
+            'A household needs at least one tenant administrator.'
+        );
+
         $membership->delete();
 
         app(AuditRecorder::class)->record('member.removed', [
@@ -94,5 +122,10 @@ class MemberController extends Controller
         ], 'warning');
 
         return response()->json(['message' => 'Member removed.']);
+    }
+
+    private function tenantAdminCount(): int
+    {
+        return TenantUser::query()->where('role', 'tenant_admin')->count();
     }
 }

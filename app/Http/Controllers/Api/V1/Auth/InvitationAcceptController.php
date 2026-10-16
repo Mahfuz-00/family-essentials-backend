@@ -30,23 +30,28 @@ class InvitationAcceptController extends Controller
 
         abort_unless($matchesEmail || $matchesPhone, 403, 'This invitation was issued to a different account.');
 
-        $membership = TenantUser::withoutGlobalScope('tenant')->firstOrCreate(
-            ['tenant_id' => $invitation->tenant_id, 'user_id' => $user->getKey()],
-            [
-                'role' => $invitation->role,
-                'status' => 'active',
-                'invited_by' => $invitation->invited_by,
-                'joined_at' => now(),
-            ],
+        // Accepting must never modify an existing membership. Updating the role on
+        // accept was a privilege-escalation path: invite your own address as a
+        // tenant_admin and accept it to overwrite your role.
+        $existing = TenantUser::withoutGlobalScope('tenant')
+            ->where('tenant_id', $invitation->tenant_id)
+            ->where('user_id', $user->getKey())
+            ->first();
+
+        abort_if(
+            $existing !== null,
+            422,
+            'You are already a member of this household.'
         );
 
-        if (! $membership->wasRecentlyCreated) {
-            $membership->update([
-                'role' => $invitation->role,
-                'status' => 'active',
-                'joined_at' => now(),
-            ]);
-        }
+        TenantUser::withoutGlobalScope('tenant')->create([
+            'tenant_id' => $invitation->tenant_id,
+            'user_id' => $user->getKey(),
+            'role' => $invitation->role,
+            'status' => 'active',
+            'invited_by' => $invitation->invited_by,
+            'joined_at' => now(),
+        ]);
 
         $invitation->update(['accepted_at' => now()]);
 

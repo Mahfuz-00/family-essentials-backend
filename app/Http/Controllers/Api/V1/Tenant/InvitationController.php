@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Tenancy\InviteMemberRequest;
 use App\Http\Resources\TenantInvitationResource;
 use App\Models\TenantInvitation;
+use App\Tenancy\RoleCapabilities;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -28,6 +29,13 @@ class InvitationController extends Controller
     public function store(InviteMemberRequest $request): JsonResponse
     {
         $this->authorizeTenantAdmin($request);
+
+        // Granting an admin role is a role-management action, not an invitation.
+        // Without this, a co-admin could invite an address (including their own)
+        // as a tenant_admin and escalate their own privileges.
+        if (RoleCapabilities::isPrivilegedRole((string) $request->string('role'))) {
+            $this->authorizeTenantOwner($request);
+        }
 
         $invitation = TenantInvitation::create([
             'email' => $request->input('email'),

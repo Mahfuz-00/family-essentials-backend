@@ -36,6 +36,15 @@ class ServiceRequestPolicy
     }
 
     /**
+     * May this user hand work to somebody else at all? Used when creating a
+     * request with an assignee, where there is no persisted request to inspect.
+     */
+    public function dispatch(User $user): bool
+    {
+        return ! $this->isJunior($user);
+    }
+
+    /**
      * Manually triggering a voice escalation is privileged (requester or admin).
      */
     public function escalate(User $user, ServiceRequest $request): bool

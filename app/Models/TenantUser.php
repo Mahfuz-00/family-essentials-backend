@@ -44,6 +44,11 @@ class TenantUser extends Model
 
     /**
      * Administrator of any rank: full tenant-admin surfaces.
+     *
+     * Mirrors the `invite_members` capability in config/roles.php. The agreement
+     * between these helpers and that file is asserted by
+     * tests/Unit/RoleCapabilityConsistencyTest.php, so a change to one without the
+     * other fails the suite rather than drifting silently.
      */
     public function isAdmin(): bool
     {
@@ -52,6 +57,8 @@ class TenantUser extends Model
 
     /**
      * Only the primary administrator may change roles or remove members.
+     *
+     * Mirrors the `manage_roles` capability in config/roles.php.
      */
     public function canManageMembers(): bool
     {
@@ -61,5 +68,18 @@ class TenantUser extends Model
     public function isJunior(): bool
     {
         return $this->role === 'junior';
+    }
+
+    /**
+     * The caller's role in the current tenant, or null when they have none.
+     * The global tenant scope means this fails closed without a tenant context.
+     */
+    public static function roleFor(?User $user): ?string
+    {
+        if ($user === null) {
+            return null;
+        }
+
+        return static::query()->where('user_id', $user->getKey())->value('role');
     }
 }
