@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\V1\Auth\PasswordResetLinkController;
 use App\Http\Controllers\Api\V1\Auth\PhoneVerificationController;
 use App\Http\Controllers\Api\V1\Auth\RegisteredUserController;
 use App\Http\Controllers\Api\V1\Auth\TenantMembershipController;
+use App\Http\Controllers\Api\V1\Feedback\FeedbackController;
 use App\Http\Controllers\Api\V1\Notifications\DeviceTokenController;
 use App\Http\Controllers\Api\V1\Notifications\NotificationLogController;
 use App\Http\Controllers\Api\V1\Pantry\EssentialController;
@@ -19,6 +20,7 @@ use App\Http\Controllers\Api\V1\Requests\RequestActionController;
 use App\Http\Controllers\Api\V1\Requests\RequestBoardController;
 use App\Http\Controllers\Api\V1\Requests\RequestController;
 use App\Http\Controllers\Api\V1\Tenant\MemberController as TenantMemberController;
+use App\Http\Controllers\Api\V1\Tenant\QuotaController as TenantQuotaController;
 use App\Http\Controllers\Api\V1\Tenant\TenantController as CurrentTenantController;
 use App\Http\Controllers\Api\V1\Voice\VoiceCallController;
 use App\Http\Controllers\Api\V1\Voice\VoiceConsentController;
@@ -76,6 +78,13 @@ Route::prefix('v1')->group(function () {
         Route::patch('tenant', [CurrentTenantController::class, 'update']);
 
         Route::get('tenant/members', [TenantMemberController::class, 'index']);
+
+        // Plan limits and live usage.
+        Route::get('tenant/quotas', [TenantQuotaController::class, 'index']);
+
+        // Feedback and bug reports from the app.
+        Route::get('feedback', [FeedbackController::class, 'index']);
+        Route::post('feedback', [FeedbackController::class, 'store']);
 
         // ---- Catalog & requests ----------------------------------------
         Route::get('items', [ItemController::class, 'index']);

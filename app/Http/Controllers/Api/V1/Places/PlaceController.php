@@ -9,6 +9,7 @@ use App\Http\Resources\PlaceResource;
 use App\Http\Resources\ServiceRequestResource;
 use App\Models\Place;
 use App\Models\ServiceRequest;
+use App\Plans\QuotaService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -29,6 +30,9 @@ class PlaceController extends Controller
     public function store(StorePlaceRequest $request): JsonResponse
     {
         $this->authorize('create', Place::class);
+
+        // The plan's place cap, enforced where places are actually created.
+        app(QuotaService::class)->assertCanAddPlace();
 
         $place = Place::create([
             'name' => $request->string('name'),

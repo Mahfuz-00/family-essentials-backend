@@ -9,6 +9,7 @@ use App\Http\Resources\ServiceRequestResource;
 use App\Models\Item;
 use App\Models\Place;
 use App\Models\ServiceRequest;
+use App\Plans\QuotaService;
 use App\Requests\RequestWorkflow;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -54,6 +55,9 @@ class RequestController extends Controller
         if (! empty($attributes['assignee_id'])) {
             $this->authorize('dispatch', ServiceRequest::class);
         }
+
+        // The plan's monthly request allowance.
+        app(QuotaService::class)->assertCanCreateRequest();
 
         if (! empty($attributes['item_id'])) {
             $item = Item::query()->findOrFail($attributes['item_id']);

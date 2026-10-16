@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Tenancy\InviteMemberRequest;
 use App\Http\Resources\TenantInvitationResource;
 use App\Models\TenantInvitation;
+use App\Plans\QuotaService;
 use App\Tenancy\RoleCapabilities;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -36,6 +37,11 @@ class InvitationController extends Controller
         if (RoleCapabilities::isPrivilegedRole((string) $request->string('role'))) {
             $this->authorizeTenantOwner($request);
         }
+
+        // A pending invitation holds a seat. Letting a household invite past its
+        // plan and refusing only at the moment the person accepts would be a nasty
+        // surprise for them, and would make the cap meaningless.
+        app(QuotaService::class)->assertCanAddSeat();
 
         $invitation = TenantInvitation::create([
             'email' => $request->input('email'),

@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests\Tenancy;
 
+use App\Plans\QuotaService;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class UpdateTenantRequest extends FormRequest
 {
@@ -18,7 +20,7 @@ class UpdateTenantRequest extends FormRequest
     {
         return [
             'name' => ['sometimes', 'string', 'max:255'],
-            'subscription_tier' => ['sometimes', 'string', 'max:64'],
+            'subscription_tier' => ['sometimes', 'string', Rule::in(QuotaService::tiers())],
             'settings' => ['sometimes', 'array'],
         ];
     }

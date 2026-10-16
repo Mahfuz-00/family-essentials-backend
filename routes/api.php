@@ -10,11 +10,13 @@ use App\Http\Controllers\Api\V1\Auth\RegisteredUserController;
 use App\Http\Controllers\Api\V1\Auth\TenantMembershipController;
 use App\Http\Controllers\Api\V1\Notifications\DeviceTokenController;
 use App\Http\Controllers\Api\V1\Notifications\NotificationLogController;
+use App\Http\Controllers\Api\V1\Feedback\FeedbackController;
 use App\Http\Controllers\Api\V1\Pantry\EssentialController;
 use App\Http\Controllers\Api\V1\Places\GeofenceController;
 use App\Http\Controllers\Api\V1\Places\PlaceController;
 use App\Http\Controllers\Api\V1\Platform\AuditLogController as PlatformAuditLogController;
 use App\Http\Controllers\Api\V1\Platform\BackupController as PlatformBackupController;
+use App\Http\Controllers\Api\V1\Platform\FeedbackController as PlatformFeedbackController;
 use App\Http\Controllers\Api\V1\Platform\HealthController as PlatformHealthController;
 use App\Http\Controllers\Api\V1\Platform\IncidentController as PlatformIncidentController;
 use App\Http\Controllers\Api\V1\Platform\MetricsController as PlatformMetricsController;
@@ -27,6 +29,7 @@ use App\Http\Controllers\Api\V1\Requests\RequestController;
 use App\Http\Controllers\Api\V1\Tenant\InvitationController as TenantInvitationController;
 use App\Http\Controllers\Api\V1\Tenant\MemberController as TenantMemberController;
 use App\Http\Controllers\Api\V1\Tenant\RoleController as TenantRoleController;
+use App\Http\Controllers\Api\V1\Tenant\QuotaController as TenantQuotaController;
 use App\Http\Controllers\Api\V1\Tenant\TenantController as CurrentTenantController;
 use App\Http\Controllers\Api\V1\Voice\VoiceCallController;
 use App\Http\Controllers\Api\V1\Voice\VoiceConsentController;
@@ -93,6 +96,10 @@ Route::prefix('v1')->group(function () {
             Route::post('incidents', [PlatformIncidentController::class, 'store']);
             Route::patch('incidents/{incident}', [PlatformIncidentController::class, 'update']);
 
+            // ---- Feedback inbox: what households are telling us -------------
+            Route::get('feedback', [PlatformFeedbackController::class, 'index']);
+            Route::patch('feedback/{feedback}', [PlatformFeedbackController::class, 'update']);
+
             // ---- Backups and disaster recovery ------------------------------
             Route::get('backups', [PlatformBackupController::class, 'index']);
             Route::post('backups', [PlatformBackupController::class, 'store']);
@@ -128,6 +135,13 @@ Route::prefix('v1')->group(function () {
 
         // Roles & permissions: the capability matrix and role catalogue.
         Route::get('tenant/roles', [TenantRoleController::class, 'index']);
+
+        // Plan limits and live usage — the caps the API actually enforces.
+        Route::get('tenant/quotas', [TenantQuotaController::class, 'index']);
+
+        // Feedback and bug reports: any household member may write here.
+        Route::get('feedback', [FeedbackController::class, 'index']);
+        Route::post('feedback', [FeedbackController::class, 'store']);
 
         Route::get('tenant/invitations', [TenantInvitationController::class, 'index']);
         Route::post('tenant/invitations', [TenantInvitationController::class, 'store']);

@@ -8,6 +8,7 @@ use App\Http\Resources\TenantResource;
 use App\Models\Tenant;
 use App\Models\TenantInvitation;
 use App\Models\TenantUser;
+use App\Plans\QuotaService;
 use Illuminate\Http\JsonResponse;
 
 class InvitationAcceptController extends Controller
@@ -42,6 +43,13 @@ class InvitationAcceptController extends Controller
             $existing !== null,
             422,
             'You are already a member of this household.'
+        );
+
+        // Re-check the seat at the moment it is taken: invitations can sit for
+        // days, and the household may have filled up in the meantime. There is no
+        // tenant context on this route, so the tenant is passed explicitly.
+        app(QuotaService::class)->assertCanAddSeat(
+            Tenant::withoutGlobalScope('tenant')->findOrFail($invitation->tenant_id)
         );
 
         TenantUser::withoutGlobalScope('tenant')->create([
