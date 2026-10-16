@@ -1,6 +1,6 @@
 <?php
 
-namespace Tests\Feature\Tenancy;
+namespace Tests\Integration\Tenancy;
 
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;

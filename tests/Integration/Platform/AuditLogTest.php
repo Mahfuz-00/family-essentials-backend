@@ -1,6 +1,6 @@
 <?php
 
-namespace Tests\Feature\Platform;
+namespace Tests\Integration\Platform;
 
 use App\Models\AuditEvent;
 use Tests\Concerns\CreatesTenants;

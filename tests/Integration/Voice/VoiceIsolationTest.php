@@ -1,6 +1,6 @@
 <?php
 
-namespace Tests\Feature\Voice;
+namespace Tests\Integration\Voice;
 
 use App\Models\VoiceCallLog;
 use App\Models\VoiceWebhookEvent;

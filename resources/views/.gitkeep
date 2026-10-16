@@ -1,0 +1,3 @@
+# This backend renders no Blade views: the interfaces are the React dashboard
+# (Frontend/) and the Flutter app (Mobile app/). The directory is kept because
+# Laravel resolves `resources/views` as the view path.

@@ -1,6 +1,6 @@
 <?php
 
-namespace Tests\Feature\Tenancy;
+namespace Tests\Integration\Tenancy;
 
 use App\Models\TenantInvitation;
 use Tests\Concerns\CreatesTenants;

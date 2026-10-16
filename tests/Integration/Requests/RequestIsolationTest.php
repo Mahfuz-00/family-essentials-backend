@@ -1,6 +1,6 @@
 <?php
 
-namespace Tests\Feature\Requests;
+namespace Tests\Integration\Requests;
 
 use App\Models\ServiceRequest;
 use Illuminate\Support\Facades\DB;

@@ -86,11 +86,22 @@ class Essential extends Model
         return $this->last_restocked_at?->copy()->addDays((int) $this->cadence_days);
     }
 
+    /**
+     * Whole calendar days until the next restock.
+     *
+     * Counting on day boundaries rather than elapsed seconds avoids an
+     * off-by-one: a raw diff of 26.9999 days truncates to 26, so a cadence due
+     * "in 27 days" would read as 26 to anyone looking at it.
+     */
     public function daysUntilDue(): ?int
     {
         $next = $this->nextDueAt();
 
-        return $next === null ? null : (int) now()->diffInDays($next, false);
+        if ($next === null) {
+            return null;
+        }
+
+        return (int) now()->startOfDay()->diffInDays($next->copy()->startOfDay(), false);
     }
 
     /**

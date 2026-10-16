@@ -7,6 +7,7 @@ use App\Tenancy\TenantContext;
 use App\Tenancy\TenantGucs;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Support\Facades\DB;
+use RuntimeException;
 
 abstract class TestCase extends BaseTestCase
 {
@@ -16,12 +17,33 @@ abstract class TestCase extends BaseTestCase
     {
         parent::setUp();
 
+        $this->guardAgainstDevelopmentDatabase();
         $this->migrateDatabaseOnce();
 
         // The suite runs against the runtime role (family_app) so PostgreSQL RLS
         // is genuinely exercised. Each test is wrapped in a transaction.
         DB::connection('pgsql')->beginTransaction();
         $this->transactionOpen = true;
+    }
+
+    /**
+     * The suite calls `migrate:fresh`, which drops every table, so it must never
+     * be pointed at the development database. phpunit.xml sets the test database,
+     * and this guard makes that a hard requirement rather than a convention.
+     */
+    private function guardAgainstDevelopmentDatabase(): void
+    {
+        $database = (string) config('database.connections.pgsql.database');
+        $admin = (string) config('database.connections.pgsql_admin.database');
+
+        foreach (['pgsql' => $database, 'pgsql_admin' => $admin] as $connection => $name) {
+            if (! str_ends_with($name, '_test')) {
+                throw new RuntimeException(
+                    "Refusing to run tests: connection [{$connection}] points at [{$name}]. "
+                    .'The test database name must end with "_test" so the development data is never dropped.'
+                );
+            }
+        }
     }
 
     protected function tearDown(): void

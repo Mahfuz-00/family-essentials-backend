@@ -1,6 +1,6 @@
 <?php
 
-namespace Tests\Feature\Geo;
+namespace Tests\Unit;
 
 use App\Enums\GeofenceEventType;
 use App\Geo\GeoPoint;

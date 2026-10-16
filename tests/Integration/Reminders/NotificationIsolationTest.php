@@ -1,6 +1,6 @@
 <?php
 
-namespace Tests\Feature\Reminders;
+namespace Tests\Integration\Reminders;
 
 use App\Models\DeviceToken;
 use App\Models\NotificationLog;

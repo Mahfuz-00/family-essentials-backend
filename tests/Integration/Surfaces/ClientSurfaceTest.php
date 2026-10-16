@@ -1,6 +1,6 @@
 <?php
 
-namespace Tests\Feature\Auth;
+namespace Tests\Integration\Surfaces;
 
 use Tests\Concerns\CreatesTenants;
 use Tests\TestCase;

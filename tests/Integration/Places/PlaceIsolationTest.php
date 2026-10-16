@@ -1,6 +1,6 @@
 <?php
 
-namespace Tests\Feature\Places;
+namespace Tests\Integration\Places;
 
 use App\Models\Place;
 use Illuminate\Support\Facades\DB;
