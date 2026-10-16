@@ -6,6 +6,8 @@ use App\Geo\GeofenceProvider;
 use App\Geo\LogGeofenceProvider;
 use App\Notifications\Channels\LogPushSender;
 use App\Notifications\Channels\PushSender;
+use App\Ops\Backups\BackupRunner;
+use App\Ops\Backups\PostgresDumpRunner;
 use App\Services\Sms\LogSmsSender;
 use App\Services\Sms\SmsSender;
 use App\Tenancy\TenantContext;
@@ -48,6 +50,10 @@ class AppServiceProvider extends ServiceProvider
                 default => new LogVoiceCaller,
             };
         });
+
+        // The dump tool self-reports whether it is usable; the service refuses to
+        // record a backup when it is not, rather than writing a placeholder.
+        $this->app->bind(BackupRunner::class, fn (): BackupRunner => new PostgresDumpRunner);
     }
 
     /**

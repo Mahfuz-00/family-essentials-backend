@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\V1\Pantry\EssentialController;
 use App\Http\Controllers\Api\V1\Places\GeofenceController;
 use App\Http\Controllers\Api\V1\Places\PlaceController;
 use App\Http\Controllers\Api\V1\Platform\AuditLogController as PlatformAuditLogController;
+use App\Http\Controllers\Api\V1\Platform\BackupController as PlatformBackupController;
 use App\Http\Controllers\Api\V1\Platform\HealthController as PlatformHealthController;
 use App\Http\Controllers\Api\V1\Platform\IncidentController as PlatformIncidentController;
 use App\Http\Controllers\Api\V1\Platform\MetricsController as PlatformMetricsController;
@@ -91,6 +92,13 @@ Route::prefix('v1')->group(function () {
             Route::get('incidents', [PlatformIncidentController::class, 'index']);
             Route::post('incidents', [PlatformIncidentController::class, 'store']);
             Route::patch('incidents/{incident}', [PlatformIncidentController::class, 'update']);
+
+            // ---- Backups and disaster recovery ------------------------------
+            Route::get('backups', [PlatformBackupController::class, 'index']);
+            Route::post('backups', [PlatformBackupController::class, 'store']);
+            Route::post('backups/{backup}/verify', [PlatformBackupController::class, 'verify']);
+            Route::get('backups/{backup}/download', [PlatformBackupController::class, 'download']);
+            Route::delete('backups/{backup}', [PlatformBackupController::class, 'destroy']);
 
             // Declared before the model-bound route so "export" is not swallowed.
             Route::get('audit-logs/export', [PlatformAuditLogController::class, 'export']);

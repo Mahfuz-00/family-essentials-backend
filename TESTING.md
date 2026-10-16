@@ -52,6 +52,37 @@ Tests do the same automatically.
 Each test also runs inside a transaction that is rolled back in `tearDown`, so
 tests are isolated from one another.
 
+## Operations tests
+
+The landlord console has its own suites, and they assert on measurements rather
+than on the existence of a page:
+
+| Test | What it pins down |
+|---|---|
+| `tests/Feature/Platform/SystemHealthTest.php` | Every check the report claims appears with a real status and message; the overall status is the worst check; uptime comes from samples and is null when there are none; the probe command samples and prunes; incidents open, resolve and re-open. |
+| `tests/Feature/Platform/BackupTest.php` | A completed run records a real file and its checksum; a run with no dump tool is `skipped`, never faked; verification notices a tampered file; pruning removes the file as well as the row; readiness states the gaps instead of claiming readiness. |
+
+`BackupTest` uses a `FakeDumpRunner` for all of that, so the suite is hermetic and
+takes seconds. One test exercises the real `pg_dump`, and it is **opt-in** — a child
+process started from inside PHPUnit on Windows can wedge the run:
+
+```
+BACKUP_REAL_DUMP_TEST=1 php artisan test --filter=test_a_real_pg_dump_produces_a_restorable_file
+```
+
+To confirm the real path by hand instead:
+
+```
+php artisan backups:run --type=manual     # dumps, then verifies and prints the result
+php artisan backups:verify
+```
+
+The dump is taken as `BACKUP_DB_CONNECTION` (`pgsql_admin`), **not** the runtime
+role: every tenant table is `FORCE ROW LEVEL SECURITY`, so a dump as `family_app`
+would export zero rows and look successful. `backups:run` needs no special flags
+to prove this — `readiness.connection_is_owner` reports it, and a test asserts the
+warning fires if the two are ever set to the same connection.
+
 ## Manual QA
 
 `php artisan db:seed` creates two isolated households plus a landlord account.

@@ -19,3 +19,14 @@ Schedule::command('ops:heartbeat')->everyMinute()->withoutOverlapping();
 Schedule::command('ops:health-probe')
     ->cron('*/'.(int) config('ops.sample_interval_minutes').' * * * *')
     ->withoutOverlapping();
+
+// Backups: take one nightly, prove it is intact while it is fresh, and prune the
+// ones past retention. The dump is verified on the day it is written, not on the
+// day it is needed.
+Schedule::command('backups:run --type=scheduled')
+    ->dailyAt((string) config('backup.daily_at'))
+    ->withoutOverlapping();
+
+Schedule::command('backups:verify')->dailyAt('05:00')->withoutOverlapping();
+
+Schedule::command('backups:prune')->dailyAt('04:00')->withoutOverlapping();
