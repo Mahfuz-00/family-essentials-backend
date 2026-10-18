@@ -20,6 +20,20 @@ enum RequestStatus: string
         return in_array($this, [self::Pending, self::Accepted, self::InProgress], true);
     }
 
+    /**
+     * The same rule as [isOpen], as values for a query — so "still actionable"
+     * is defined once rather than repeated in every whereIn().
+     *
+     * @return array<int, string>
+     */
+    public static function openValues(): array
+    {
+        return array_values(array_map(
+            static fn (self $status): string => $status->value,
+            array_filter(self::cases(), static fn (self $status): bool => $status->isOpen()),
+        ));
+    }
+
     public function isTerminal(): bool
     {
         return in_array($this, [self::Completed, self::Declined, self::Cancelled, self::Unavailable], true);

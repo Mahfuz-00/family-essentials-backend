@@ -21,6 +21,7 @@ class UserResource extends JsonResource
             'phone_verified' => ! is_null($this->phone_verified_at),
             'is_platform_admin' => (bool) $this->is_platform_admin,
             'voice_opt_in' => (bool) $this->voice_opt_in,
+            'location_notifications_opt_in' => (bool) $this->location_notifications_opt_in,
             'active_tenant_id' => $this->active_tenant_id,
             'created_at' => $this->created_at?->toISOString(),
         ];

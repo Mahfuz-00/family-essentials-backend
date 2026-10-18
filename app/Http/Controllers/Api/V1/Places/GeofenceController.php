@@ -7,6 +7,7 @@ use App\Geo\GeofenceMonitor;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Places\EvaluateGeofenceRequest;
 use App\Http\Resources\GeofenceEventResource;
+use App\Http\Resources\LocationNotificationResource;
 use App\Http\Resources\PlaceResource;
 use App\Http\Resources\ServiceRequestResource;
 use App\Models\GeofenceEvent;
@@ -16,8 +17,9 @@ use Illuminate\Http\Request;
 class GeofenceController extends Controller
 {
     /**
-     * Report a device position: returns any enter/exit transitions plus the
-     * store-specific shopping lists for places now in range.
+     * Report a device position: returns any enter/exit transitions, the
+     * store-specific shopping lists for places now in range, and the arrival
+     * decisions for this report — what the member was told, or why not.
      */
     public function evaluate(EvaluateGeofenceRequest $request, GeofenceMonitor $monitor): JsonResponse
     {
@@ -35,6 +37,7 @@ class GeofenceController extends Controller
                 'place' => new PlaceResource($list['place']),
                 'requests' => ServiceRequestResource::collection($list['requests']),
             ])->values(),
+            'location_notifications' => LocationNotificationResource::collection($result['location_notifications']),
         ]);
     }
 

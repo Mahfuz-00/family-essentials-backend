@@ -20,6 +20,10 @@ class PlaceResource extends JsonResource
             'longitude' => $this->longitude,
             'radius_meters' => $this->radius_meters,
             'category' => $this->category,
+            // The notification-facing kind, derived from category. Sent as a
+            // label as well so a client never re-implements the mapping.
+            'kind' => $this->kind()->value,
+            'kind_label' => $this->kind()->label(),
             'active_requests_count' => $this->whenCounted('requests'),
             'created_at' => $this->created_at?->toISOString(),
         ];

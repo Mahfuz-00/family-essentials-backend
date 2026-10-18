@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\V1\Auth\RegisteredUserController;
 use App\Http\Controllers\Api\V1\Auth\TenantMembershipController;
 use App\Http\Controllers\Api\V1\Feedback\FeedbackController;
 use App\Http\Controllers\Api\V1\Notifications\DeviceTokenController;
+use App\Http\Controllers\Api\V1\Notifications\LocationNotificationPreferenceController;
 use App\Http\Controllers\Api\V1\Notifications\NotificationLogController;
 use App\Http\Controllers\Api\V1\Pantry\EssentialController;
 use App\Http\Controllers\Api\V1\Places\GeofenceController;
@@ -58,6 +59,9 @@ Route::prefix('v1')->group(function () {
             Route::post('logout', [AuthenticatedSessionController::class, 'destroy']);
 
             Route::patch('voice-consent', [VoiceConsentController::class, 'update']);
+
+            // Arrival notifications, opt-in per member — mirrors voice consent.
+            Route::patch('location-consent', [LocationNotificationPreferenceController::class, 'update']);
 
             Route::post('email/resend', [EmailVerificationController::class, 'resend'])->middleware('throttle:6,1');
             Route::post('phone/send-code', [PhoneVerificationController::class, 'send'])->middleware('throttle:6,1');

@@ -5,6 +5,7 @@ namespace Tests\Concerns;
 use App\Enums\RequestPriority;
 use App\Enums\RequestStatus;
 use App\Models\Item;
+use App\Models\Place;
 use App\Models\ServiceRequest;
 use App\Models\Tenant;
 use App\Models\TenantUser;
@@ -93,6 +94,29 @@ trait CreatesTenants
             ], $attributes))->save();
 
             return $item;
+        });
+    }
+
+    /**
+     * A saved place, created the same way the other fixtures are: forceFill under
+     * the bypass, because `tenant_id` is deliberately not mass-assignable.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    protected function createPlace(Tenant $tenant, string $name, array $attributes = []): Place
+    {
+        return $this->withBypass(function () use ($tenant, $name, $attributes): Place {
+            $place = new Place;
+
+            $place->forceFill(array_merge([
+                'tenant_id' => $tenant->id,
+                'name' => $name,
+                'latitude' => 23.8103,
+                'longitude' => 90.4125,
+                'radius_meters' => 300,
+            ], $attributes))->save();
+
+            return $place;
         });
     }
 

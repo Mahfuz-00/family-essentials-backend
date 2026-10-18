@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Enums\LocationKind;
+use App\Enums\PlaceCategory;
 use App\Geo\GeoPoint;
 use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -33,6 +35,11 @@ class Place extends Model
         return $this->belongsTo(User::class, 'created_by');
     }
 
+    public function tenant(): BelongsTo
+    {
+        return $this->belongsTo(Tenant::class);
+    }
+
     public function requests(): HasMany
     {
         return $this->hasMany(ServiceRequest::class);
@@ -41,5 +48,17 @@ class Place extends Model
     public function point(): GeoPoint
     {
         return new GeoPoint((float) $this->latitude, (float) $this->longitude);
+    }
+
+    /**
+     * What this place is, for notification wording.
+     *
+     * Derived from `category` so there is no second classification to keep in
+     * step — and an unrecognised or missing category is Other rather than an
+     * error, which keeps older rows readable.
+     */
+    public function kind(): LocationKind
+    {
+        return PlaceCategory::tryFrom((string) $this->category)?->kind() ?? LocationKind::Other;
     }
 }
