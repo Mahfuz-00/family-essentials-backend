@@ -42,6 +42,13 @@ class ServiceRequestResource extends JsonResource
             'history' => $this->whenLoaded('assignments', fn () => AssignmentResource::collection($this->assignments)),
             'reminders' => $this->whenLoaded('reminders', fn () => ReminderResource::collection($this->reminders)),
             'voice_calls' => $this->whenLoaded('voiceCallLogs', fn () => VoiceCallResource::collection($this->voiceCallLogs)),
+            // Set by the recurring command when this request stands for one cycle
+            // of a rule, so the client can group cycles without guessing.
+            'recurring_rule_id' => $this->recurring_rule_id,
+            'recurring_for' => $this->recurring_for?->toDateString(),
+            // The ledger this task is charged to, in integer minor units.
+            'amount_minor' => $this->amount_minor,
+            'ledger_id' => $this->ledger_id,
         ];
     }
 

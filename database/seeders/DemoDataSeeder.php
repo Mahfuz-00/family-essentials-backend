@@ -69,10 +69,18 @@ class DemoDataSeeder extends Seeder
         $this->optIn($elena, false);
 
         $this->tenantId = (int) $tanvirHousehold->id;
-        Tenancy::forTenant($tanvirHousehold->id, fn () => $this->seedTutorialHousehold($tanvir, $sarah, $platform));
+        Tenancy::forTenant(
+            $tanvirHousehold->id,
+            fn () => $this->seedTutorialHousehold($tanvir, $sarah, $platform),
+            (int) $tanvir->id,
+        );
 
         $this->tenantId = (int) $bradleyHousehold->id;
-        Tenancy::forTenant($bradleyHousehold->id, fn () => $this->seedSecondHousehold($bradley, $elena));
+        Tenancy::forTenant(
+            $bradleyHousehold->id,
+            fn () => $this->seedSecondHousehold($bradley, $elena),
+            (int) $bradley->id,
+        );
 
         $this->command?->info('Demo data seeded: places, requests, pantry, feedback and device tokens.');
     }

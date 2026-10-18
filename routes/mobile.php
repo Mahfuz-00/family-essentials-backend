@@ -10,6 +10,10 @@ use App\Http\Controllers\Api\V1\Auth\PhoneVerificationController;
 use App\Http\Controllers\Api\V1\Auth\RegisteredUserController;
 use App\Http\Controllers\Api\V1\Auth\TenantMembershipController;
 use App\Http\Controllers\Api\V1\Feedback\FeedbackController;
+use App\Http\Controllers\Api\V1\Ledger\LedgerController;
+use App\Http\Controllers\Api\V1\Ledger\LedgerEntryController;
+use App\Http\Controllers\Api\V1\Ledger\LedgerMemberController;
+use App\Http\Controllers\Api\V1\Ledger\LedgerSummaryController;
 use App\Http\Controllers\Api\V1\Notifications\DeviceTokenController;
 use App\Http\Controllers\Api\V1\Notifications\LocationNotificationPreferenceController;
 use App\Http\Controllers\Api\V1\Notifications\NotificationLogController;
@@ -17,6 +21,7 @@ use App\Http\Controllers\Api\V1\Pantry\EssentialController;
 use App\Http\Controllers\Api\V1\Places\GeofenceController;
 use App\Http\Controllers\Api\V1\Places\PlaceController;
 use App\Http\Controllers\Api\V1\ProfileController;
+use App\Http\Controllers\Api\V1\Recurring\RecurringRuleController;
 use App\Http\Controllers\Api\V1\Requests\ItemController;
 use App\Http\Controllers\Api\V1\Requests\RequestActionController;
 use App\Http\Controllers\Api\V1\Requests\RequestBoardController;
@@ -139,6 +144,29 @@ Route::prefix('v1')->group(function () {
         Route::get('voice-calls/quota', [VoiceCallController::class, 'quota']);
         Route::get('voice-calls', [VoiceCallController::class, 'index']);
         Route::post('requests/{serviceRequest}/voice-escalation', [VoiceCallController::class, 'store']);
+
+        // ---- Recurring rules --------------------------------------------
+        // The app manages the same rules the dashboard does; the daily command
+        // does the spawning on both surfaces.
+        Route::get('recurring-rules', [RecurringRuleController::class, 'index']);
+        Route::post('recurring-rules', [RecurringRuleController::class, 'store']);
+        Route::patch('recurring-rules/{recurringRule}', [RecurringRuleController::class, 'update']);
+        Route::delete('recurring-rules/{recurringRule}', [RecurringRuleController::class, 'destroy']);
+
+        // ---- Household ledger (money) ------------------------------------
+        // Same controllers and the same rules as /api/v1: a ledger the caller is
+        // not a member of is a 404 on both, and a `summary` member may read the
+        // aggregates but never an entry.
+        Route::get('ledgers', [LedgerController::class, 'index']);
+        Route::post('ledgers', [LedgerController::class, 'store']);
+
+        Route::post('ledgers/{ledger}/members', [LedgerMemberController::class, 'store']);
+        Route::delete('ledgers/{ledger}/members/{user}', [LedgerMemberController::class, 'destroy']);
+
+        Route::get('ledgers/{ledger}/summary', [LedgerSummaryController::class, 'show']);
+        Route::get('ledgers/{ledger}/entries', [LedgerEntryController::class, 'index']);
+        Route::post('ledgers/{ledger}/entries', [LedgerEntryController::class, 'store']);
+        Route::delete('ledgers/{ledger}/entries/{entry}', [LedgerEntryController::class, 'destroy']);
     });
 
     // ---- Provider webhooks (no tenant context; signature verified) ------

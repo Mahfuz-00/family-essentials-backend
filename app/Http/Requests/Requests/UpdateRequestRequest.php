@@ -4,6 +4,7 @@ namespace App\Http\Requests\Requests;
 
 use App\Enums\GeofenceEventType;
 use App\Enums\RequestPriority;
+use App\Models\Ledger;
 use App\Models\TenantUser;
 use Closure;
 use Illuminate\Foundation\Http\FormRequest;
@@ -42,7 +43,24 @@ class UpdateRequestRequest extends FormRequest
                     }
                 },
             ],
+
+            // Charging the task to a ledger, in integer minor units.
+            'amount_minor' => ['nullable', 'integer', 'min:1', 'max:1000000000', 'required_with:ledger_id'],
+            'ledger_id' => ['nullable', 'integer', 'required_with:amount_minor', $this->tenantLedgerRule()],
         ];
+    }
+
+    private function tenantLedgerRule(): Closure
+    {
+        return function (string $attribute, mixed $value, Closure $fail): void {
+            if ($value === null) {
+                return;
+            }
+
+            if (! Ledger::query()->whereKey($value)->exists()) {
+                $fail('The selected ledger is not one you take part in.');
+            }
+        };
     }
 
     private function tenantPlaceRule(): Closure

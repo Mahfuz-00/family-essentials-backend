@@ -4,6 +4,7 @@ namespace App\Http\Requests\Requests;
 
 use App\Enums\GeofenceEventType;
 use App\Enums\RequestPriority;
+use App\Models\Ledger;
 use App\Models\TenantUser;
 use Closure;
 use Illuminate\Foundation\Http\FormRequest;
@@ -39,7 +40,29 @@ class StoreRequestRequest extends FormRequest
             // leaving it. See the docblock below for why direction is paired.
             'location_trigger_place_id' => ['nullable', 'integer', $this->tenantPlaceRule()],
             'location_trigger_direction' => $this->triggerDirectionRules(),
+
+            // Charging a task to a ledger: an amount without a ledger would be
+            // silently forgotten, so the two are validated together.
+            'amount_minor' => ['nullable', 'integer', 'min:1', 'max:1000000000', 'required_with:ledger_id'],
+            'ledger_id' => ['nullable', 'integer', 'required_with:amount_minor', $this->tenantLedgerRule()],
         ];
+    }
+
+    /**
+     * Scoped by RLS: a ledger the caller is not a member of does not exist for
+     * them, so it cannot be attached to their request.
+     */
+    private function tenantLedgerRule(): Closure
+    {
+        return function (string $attribute, mixed $value, Closure $fail): void {
+            if ($value === null) {
+                return;
+            }
+
+            if (! Ledger::query()->whereKey($value)->exists()) {
+                $fail('The selected ledger is not one you take part in.');
+            }
+        };
     }
 
     /**

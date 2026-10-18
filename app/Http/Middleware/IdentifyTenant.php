@@ -28,11 +28,17 @@ class IdentifyTenant
         $context = app(TenantContext::class);
         $context->reset();
 
+        // The acting person, alongside the household: the ledger tables are
+        // isolated per member, so both GUCs must be in place before route-model
+        // binding runs.
+        $userId = Auth::guard('sanctum')->user()?->getKey();
+
         try {
             $tenantId = $this->resolveTenantId($request);
 
             $context->reset();
             $context->set($tenantId);
+            $context->setUser($userId);
             TenantGucs::apply($context);
 
             return $next($request);

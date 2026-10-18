@@ -5,6 +5,7 @@ namespace App\Requests;
 use App\Enums\AssignmentAction;
 use App\Enums\RequestPriority;
 use App\Enums\RequestStatus;
+use App\Ledgers\RequestExpenseRecorder;
 use App\Models\Assignment;
 use App\Models\ServiceRequest;
 use App\Models\User;
@@ -14,11 +15,15 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * The single place that mutates a request's status, records the assignment /
- * handover history, and keeps its reminders in sync.
+ * handover history, keeps its reminders in sync, and bridges a completed task
+ * into the household ledger.
  */
 class RequestWorkflow
 {
-    public function __construct(private readonly ReminderScheduler $reminders) {}
+    public function __construct(
+        private readonly ReminderScheduler $reminders,
+        private readonly RequestExpenseRecorder $expenses,
+    ) {}
 
     /**
      * @param  array<string, mixed>  $attributes
@@ -42,6 +47,12 @@ class RequestWorkflow
             'requested_by' => $requester->getKey(),
             'assignee_id' => $attributes['assignee_id'] ?? null,
             'status' => RequestStatus::Pending,
+            // Set only by the recurring spawn command: which rule produced this
+            // row, and which cycle it stands for.
+            'recurring_rule_id' => $attributes['recurring_rule_id'] ?? null,
+            'recurring_for' => $attributes['recurring_for'] ?? null,
+            'amount_minor' => $attributes['amount_minor'] ?? null,
+            'ledger_id' => $attributes['ledger_id'] ?? null,
         ])->save();
 
         if ($request->assignee_id !== null) {
@@ -129,6 +140,10 @@ class RequestWorkflow
         ])->save();
 
         $this->record($request, (int) ($request->assignee_id ?? $by->getKey()), $by, AssignmentAction::Completed);
+
+        // Money follows the task, not the surface: whichever client completed
+        // it, a request that carries a ledger records exactly one expense.
+        $this->expenses->record($request, $by);
 
         return $this->finish($request);
     }

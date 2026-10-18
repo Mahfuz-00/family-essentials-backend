@@ -109,6 +109,7 @@ abstract class TestCase extends BaseTestCase
     {
         $context = app(TenantContext::class);
         $previousId = $context->id();
+        $previousUser = $context->userId();
         $previousBypass = $context->isBypassed();
 
         $context->bypass(true);
@@ -121,6 +122,7 @@ abstract class TestCase extends BaseTestCase
             // with an enclosing tenant scope.
             $context->reset();
             $context->set($previousId);
+            $context->setUser($previousUser);
             $context->bypass($previousBypass);
             TenantGucs::apply($context);
         }

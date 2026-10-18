@@ -28,14 +28,23 @@ class Tenancy
         }
     }
 
-    public static function forTenant(?int $tenantId, callable $callback): mixed
+    /**
+     * Runs $callback with $tenantId selected, optionally as a specific person.
+     *
+     * The person matters for the ledger tables, whose policies key off
+     * `app.current_user`; pass it whenever the background work acts for somebody
+     * (a spawned request is raised by the member who owns the rule).
+     */
+    public static function forTenant(?int $tenantId, callable $callback, ?int $userId = null): mixed
     {
         $context = app(TenantContext::class);
         $previousId = $context->id();
+        $previousUser = $context->userId();
         $previousBypass = $context->isBypassed();
 
         $context->bypass(false);
         $context->set($tenantId);
+        $context->setUser($userId);
         TenantGucs::apply($context);
 
         try {
@@ -43,6 +52,7 @@ class Tenancy
         } finally {
             $context->reset();
             $context->set($previousId);
+            $context->setUser($previousUser);
             $context->bypass($previousBypass);
             TenantGucs::apply($context);
         }

@@ -19,6 +19,10 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'item_id', 'title', 'quantity', 'notes', 'category', 'priority',
     'store_name', 'place_id', 'assignee_id', 'due_at', 'snooze_until',
     'location_trigger_place_id', 'location_trigger_direction',
+    // The ledger a request is charged to, and how much. `recurring_rule_id` and
+    // `recurring_for` are deliberately *not* fillable: they are evidence of which
+    // cycle produced this row, so only the spawn command writes them.
+    'amount_minor', 'ledger_id',
 ])]
 class ServiceRequest extends Model
 {
@@ -41,12 +45,27 @@ class ServiceRequest extends Model
             'cancelled_at' => 'datetime',
             'voice_escalation_attempts' => 'integer',
             'last_voice_attempt_at' => 'datetime',
+            'recurring_for' => 'date',
+            'amount_minor' => 'integer',
         ];
     }
 
     public function item(): BelongsTo
     {
         return $this->belongsTo(Item::class);
+    }
+
+    /**
+     * The rule this request was spawned from, if it was.
+     */
+    public function recurringRule(): BelongsTo
+    {
+        return $this->belongsTo(RecurringRule::class, 'recurring_rule_id');
+    }
+
+    public function ledger(): BelongsTo
+    {
+        return $this->belongsTo(Ledger::class);
     }
 
     public function place(): BelongsTo

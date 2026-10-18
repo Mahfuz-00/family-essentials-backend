@@ -12,10 +12,13 @@ Schedule::command('reminders:dispatch-due')->everyMinute()->withoutOverlapping()
 
 Schedule::command('voice:escalate-overdue')->everyFiveMinutes()->withoutOverlapping();
 
+// Recurring chores: one fresh request per rule per day, early enough that the
+// board is populated before the household wakes up.
+Schedule::command('essentials:spawn-recurring')->dailyAt('00:05')->withoutOverlapping();
+
 // Operations: prove the scheduler is alive, and sample the system so uptime is
 // measured from observations rather than asserted.
 Schedule::command('ops:heartbeat')->everyMinute()->withoutOverlapping();
-
 Schedule::command('ops:health-probe')
     ->cron('*/'.(int) config('ops.sample_interval_minutes').' * * * *')
     ->withoutOverlapping();

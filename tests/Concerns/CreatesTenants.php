@@ -2,15 +2,23 @@
 
 namespace Tests\Concerns;
 
+use App\Enums\Cadence;
+use App\Enums\LedgerEntryDirection;
+use App\Enums\LedgerEntrySource;
 use App\Enums\RequestPriority;
 use App\Enums\RequestStatus;
 use App\Models\Item;
+use App\Models\Ledger;
+use App\Models\LedgerEntry;
+use App\Models\LedgerMember;
 use App\Models\Place;
+use App\Models\RecurringRule;
 use App\Models\ServiceRequest;
 use App\Models\Tenant;
 use App\Models\TenantUser;
 use App\Models\User;
 use App\Tenancy\TenantProvisioner;
+use Illuminate\Support\Carbon;
 
 trait CreatesTenants
 {
@@ -123,6 +131,80 @@ trait CreatesTenants
     protected function tokenFor(User $user): string
     {
         return $user->createToken('phpunit')->plainTextToken;
+    }
+
+    /**
+     * A recurring rule, due today unless the attributes say otherwise.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    protected function createRecurringRule(Tenant $tenant, User $creator, array $attributes = []): RecurringRule
+    {
+        return $this->withBypass(function () use ($tenant, $creator, $attributes): RecurringRule {
+            $rule = new RecurringRule;
+
+            $rule->forceFill(array_merge([
+                'tenant_id' => $tenant->id,
+                'title' => 'Test rule',
+                'cadence' => Cadence::Daily,
+                'next_run_on' => Carbon::today()->toDateString(),
+                'active' => true,
+                'created_by' => $creator->id,
+            ], $attributes))->save();
+
+            return $rule;
+        });
+    }
+
+    /**
+     * A ledger with its owner's membership row, created the same way the other
+     * fixtures are: under the bypass, because `tenant_id` and `owner_id` are the
+     * database's business rather than the model's.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    protected function createLedger(Tenant $tenant, User $owner, string $name = 'Household ledger', array $attributes = []): Ledger
+    {
+        return $this->withBypass(function () use ($tenant, $owner, $name, $attributes): Ledger {
+            $ledger = new Ledger;
+
+            $ledger->forceFill(array_merge([
+                'tenant_id' => $tenant->id,
+                'name' => $name,
+                'owner_id' => $owner->id,
+                'currency' => 'BDT',
+            ], $attributes))->save();
+
+            $this->addLedgerMember($ledger, $owner, 'owner');
+
+            return $ledger;
+        });
+    }
+
+    protected function addLedgerMember(Ledger $ledger, User $user, string $role = 'summary'): LedgerMember
+    {
+        return $this->withBypass(fn (): LedgerMember => LedgerMember::create([
+            'tenant_id' => $ledger->tenant_id,
+            'ledger_id' => $ledger->id,
+            'user_id' => $user->id,
+            'role' => $role,
+        ]));
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes
+     */
+    protected function createLedgerEntry(Ledger $ledger, User $creator, array $attributes = []): LedgerEntry
+    {
+        return $this->withBypass(fn (): LedgerEntry => LedgerEntry::create(array_merge([
+            'tenant_id' => $ledger->tenant_id,
+            'ledger_id' => $ledger->id,
+            'amount_minor' => 10_000,
+            'direction' => LedgerEntryDirection::Expense,
+            'occurred_on' => Carbon::today()->toDateString(),
+            'source' => LedgerEntrySource::Manual,
+            'created_by' => $creator->id,
+        ], $attributes)));
     }
 
     protected function optInForVoice(User $user, string $phone = '+15550009999'): User

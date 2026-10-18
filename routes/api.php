@@ -13,6 +13,10 @@ use App\Http\Controllers\Api\V1\Notifications\DeviceTokenController;
 use App\Http\Controllers\Api\V1\Notifications\LocationNotificationPreferenceController;
 use App\Http\Controllers\Api\V1\Notifications\NotificationLogController;
 use App\Http\Controllers\Api\V1\Feedback\FeedbackController;
+use App\Http\Controllers\Api\V1\Ledger\LedgerController;
+use App\Http\Controllers\Api\V1\Ledger\LedgerEntryController;
+use App\Http\Controllers\Api\V1\Ledger\LedgerMemberController;
+use App\Http\Controllers\Api\V1\Ledger\LedgerSummaryController;
 use App\Http\Controllers\Api\V1\Pantry\EssentialController;
 use App\Http\Controllers\Api\V1\Places\GeofenceController;
 use App\Http\Controllers\Api\V1\Places\PlaceController;
@@ -24,6 +28,7 @@ use App\Http\Controllers\Api\V1\Platform\IncidentController as PlatformIncidentC
 use App\Http\Controllers\Api\V1\Platform\MetricsController as PlatformMetricsController;
 use App\Http\Controllers\Api\V1\Platform\TenantController as PlatformTenantController;
 use App\Http\Controllers\Api\V1\ProfileController;
+use App\Http\Controllers\Api\V1\Recurring\RecurringRuleController;
 use App\Http\Controllers\Api\V1\Requests\ItemController;
 use App\Http\Controllers\Api\V1\Requests\RequestActionController;
 use App\Http\Controllers\Api\V1\Requests\RequestBoardController;
@@ -200,6 +205,29 @@ Route::prefix('v1')->group(function () {
         Route::get('voice-calls/quota', [VoiceCallController::class, 'quota']);
         Route::get('voice-calls', [VoiceCallController::class, 'index']);
         Route::post('requests/{serviceRequest}/voice-escalation', [VoiceCallController::class, 'store']);
+
+        // ---- Recurring rules --------------------------------------------
+        // A rule is turned into a fresh request each cycle by
+        // `essentials:spawn-recurring`; nothing here touches a request.
+        Route::get('recurring-rules', [RecurringRuleController::class, 'index']);
+        Route::post('recurring-rules', [RecurringRuleController::class, 'store']);
+        Route::patch('recurring-rules/{recurringRule}', [RecurringRuleController::class, 'update']);
+        Route::delete('recurring-rules/{recurringRule}', [RecurringRuleController::class, 'destroy']);
+
+        // ---- Household ledger (money) ------------------------------------
+        // Which ledgers a caller can reach is enforced by PostgreSQL (they must
+        // have a membership row); how much of one they see is enforced by the
+        // policy. A ledger they are not in is a 404, never a 403.
+        Route::get('ledgers', [LedgerController::class, 'index']);
+        Route::post('ledgers', [LedgerController::class, 'store']);
+
+        Route::post('ledgers/{ledger}/members', [LedgerMemberController::class, 'store']);
+        Route::delete('ledgers/{ledger}/members/{user}', [LedgerMemberController::class, 'destroy']);
+
+        Route::get('ledgers/{ledger}/summary', [LedgerSummaryController::class, 'show']);
+        Route::get('ledgers/{ledger}/entries', [LedgerEntryController::class, 'index']);
+        Route::post('ledgers/{ledger}/entries', [LedgerEntryController::class, 'store']);
+        Route::delete('ledgers/{ledger}/entries/{entry}', [LedgerEntryController::class, 'destroy']);
     });
 
     // ---- Provider webhooks (no tenant context; signature verified) ------
