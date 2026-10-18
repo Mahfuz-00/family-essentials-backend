@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\GeofenceEventType;
 use App\Enums\RequestPriority;
 use App\Enums\RequestStatus;
 use App\Models\Concerns\BelongsToTenant;
@@ -17,6 +18,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 #[Fillable([
     'item_id', 'title', 'quantity', 'notes', 'category', 'priority',
     'store_name', 'place_id', 'assignee_id', 'due_at', 'snooze_until',
+    'location_trigger_place_id', 'location_trigger_direction',
 ])]
 class ServiceRequest extends Model
 {
@@ -32,6 +34,7 @@ class ServiceRequest extends Model
         return [
             'priority' => RequestPriority::class,
             'status' => RequestStatus::class,
+            'location_trigger_direction' => GeofenceEventType::class,
             'due_at' => 'datetime',
             'snooze_until' => 'datetime',
             'completed_at' => 'datetime',
@@ -49,6 +52,15 @@ class ServiceRequest extends Model
     public function place(): BelongsTo
     {
         return $this->belongsTo(Place::class);
+    }
+
+    /**
+     * The place that cues the reminder. Deliberately separate from `place()`:
+     * where to buy it and where to remind me are different facts.
+     */
+    public function triggerPlace(): BelongsTo
+    {
+        return $this->belongsTo(Place::class, 'location_trigger_place_id');
     }
 
     public function requester(): BelongsTo

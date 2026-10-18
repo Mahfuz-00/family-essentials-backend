@@ -28,26 +28,40 @@ enum LocationKind: string
     }
 
     /**
-     * The sentence a member sees when they arrive with work waiting here.
+     * The sentence a member sees when their own cue fires.
      *
-     * The wording lives with the kind so the API, the app and the tests cannot
-     * drift apart over what a Store arrival says.
+     * The wording follows the cue — a direction and the place's kind — rather
+     * than the task's shop: "leaving work" and "arriving home" are different
+     * moments and deserve different sentences.
+     */
+    public function triggerMessage(GeofenceEventType $direction, int $count, string $placeName): string
+    {
+        $items = $count === 1 ? 'item' : 'items';
+        $tasks = $count === 1 ? 'task' : 'tasks';
+
+        if ($direction === GeofenceEventType::Exit) {
+            return match ($this) {
+                self::Office => "Leaving work: {$count} {$items} to pick up.",
+                self::Home => "You left home: {$count} {$tasks} still open.",
+                self::Store => "Leaving {$placeName} — {$count} {$items} still on the list.",
+                self::Other => "You left {$placeName}: {$count} {$tasks}.",
+            };
+        }
+
+        return match ($this) {
+            self::Home => "You're home — {$count} {$items} still on the list.",
+            self::Office => "At work: {$count} {$tasks} for you.",
+            self::Store => "You're at {$placeName}: {$count} {$items}.",
+            self::Other => "At {$placeName}: {$count} {$tasks}.",
+        };
+    }
+
+    /**
+     * The sentence used when a place is entered and the trigger is not known to
+     * be an exit — kept for the place-specific shopping list copy.
      */
     public function arrivalMessage(int $count): string
     {
-        return match ($this) {
-            self::Home => $count === 1
-                ? 'You have 1 household task to take care of.'
-                : "You have {$count} household tasks to take care of.",
-            self::Office => $count === 1
-                ? 'You have 1 task associated with work.'
-                : "You have {$count} tasks associated with work.",
-            self::Store => $count === 1
-                ? 'You have 1 item to buy here.'
-                : "You have {$count} items to buy here.",
-            self::Other => $count === 1
-                ? 'You have 1 task here.'
-                : "You have {$count} tasks here.",
-        };
+        return $this->triggerMessage(GeofenceEventType::Enter, $count, $this->label());
     }
 }

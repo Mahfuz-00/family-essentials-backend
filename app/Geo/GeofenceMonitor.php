@@ -2,7 +2,6 @@
 
 namespace App\Geo;
 
-use App\Enums\GeofenceEventType;
 use App\Models\GeofenceEvent;
 use App\Models\LocationNotification;
 use App\Models\Place;
@@ -56,14 +55,13 @@ class GeofenceMonitor
 
             $this->provider->notify($transition);
 
-            // Arriving is what a member hears about; leaving is recorded but
-            // silent. Only an entry transition can be an arrival.
-            if ($transition->type === GeofenceEventType::Enter) {
-                $place = $places->firstWhere('id', $transition->placeId);
+            // Both directions can be a cue: a member may ask to be reminded when
+            // they *leave* work just as readily as when they arrive home. The
+            // notifier decides, by matching the task's own trigger.
+            $place = $places->firstWhere('id', $transition->placeId);
 
-                if ($place !== null) {
-                    $arrivals[] = $this->notifier->onEnter($user, $place, $event);
-                }
+            if ($place !== null) {
+                $arrivals[] = $this->notifier->onTransition($user, $place, $event);
             }
         }
 

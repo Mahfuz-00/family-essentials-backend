@@ -36,6 +36,8 @@ class RequestWorkflow
             'priority' => $attributes['priority'] ?? RequestPriority::Normal,
             'store_name' => $attributes['store_name'] ?? null,
             'place_id' => $attributes['place_id'] ?? null,
+            'location_trigger_place_id' => $attributes['location_trigger_place_id'] ?? null,
+            'location_trigger_direction' => $attributes['location_trigger_direction'] ?? null,
             'due_at' => $attributes['due_at'] ?? null,
             'requested_by' => $requester->getKey(),
             'assignee_id' => $attributes['assignee_id'] ?? null,

@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Requests;
 
+use App\Enums\GeofenceEventType;
 use App\Enums\RequestPriority;
 use App\Models\TenantUser;
 use Closure;
@@ -30,6 +31,17 @@ class UpdateRequestRequest extends FormRequest
             'due_at' => ['nullable', 'date'],
             'assignee_id' => ['nullable', 'integer', $this->tenantMemberRule()],
             'place_id' => ['nullable', 'integer', $this->tenantPlaceRule()],
+            'location_trigger_place_id' => ['nullable', 'integer', $this->tenantPlaceRule()],
+            'location_trigger_direction' => [
+                'nullable',
+                Rule::enum(GeofenceEventType::class),
+                'required_with:location_trigger_place_id',
+                function (string $attribute, mixed $value, Closure $fail): void {
+                    if ($value !== null && $this->input('location_trigger_place_id') === null) {
+                        $fail('Choose a place for the reminder, or remove the direction.');
+                    }
+                },
+            ],
         ];
     }
 

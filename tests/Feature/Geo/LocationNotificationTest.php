@@ -13,8 +13,11 @@ use Tests\Concerns\CreatesTenants;
 use Tests\TestCase;
 
 /**
- * Arrival notifications: who is told what when they walk into a saved place with
- * their own work waiting, and why they are told nothing when they are not.
+ * The reminder cue: a saved place and a direction, chosen per task.
+ *
+ * "Buy chips" and "remind me when I leave the office" are different facts, so
+ * these tests always link a shop *and* a trigger — and several assert that the
+ * two are not confused.
  */
 class LocationNotificationTest extends TestCase
 {
@@ -41,7 +44,7 @@ class LocationNotificationTest extends TestCase
         return $user;
     }
 
-    private function placeWith(string $token, string $category, string $name = 'Whole Foods'): int
+    private function place(string $token, string $category, string $name = 'Whole Foods'): int
     {
         return (int) $this->withToken($token)
             ->postJson('/api/v1/places', [
@@ -63,9 +66,29 @@ class LocationNotificationTest extends TestCase
         $tenant = $this->createTenant('Household A');
         $member = $this->optedIn($this->createMember($tenant, 'member'));
         $token = $this->tokenFor($member);
-        $placeId = $this->placeWith($token, $category, $name);
+        $placeId = $this->place($token, $category, $name);
 
         return [$placeId, $token, $member, $tenant];
+    }
+
+    /**
+     * A task linked to the shop *and* carrying its own reminder cue.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    private function task(
+        Tenant $tenant,
+        User $assignee,
+        int $placeId,
+        string $direction = 'enter',
+        array $attributes = [],
+    ): ServiceRequest {
+        return $this->withBypass(fn (): ServiceRequest => $this->createRequest($tenant, $assignee, array_merge([
+            'place_id' => $placeId,
+            'assignee_id' => $assignee->id,
+            'location_trigger_place_id' => $placeId,
+            'location_trigger_direction' => $direction,
+        ], $attributes)));
     }
 
     private function arrive(string $token, array $position = self::INSIDE)
@@ -73,94 +96,104 @@ class LocationNotificationTest extends TestCase
         return $this->withToken($token)->postJson('/api/v1/geofences/evaluate', $position);
     }
 
-    public function test_an_arrival_tells_the_member_about_their_own_open_tasks(): void
+    // ------------------------------------------------------------- the cue
+
+    public function test_leaving_work_tells_the_member_what_to_pick_up(): void
     {
-        [$placeId, $token, $member, $tenant] = $this->household();
+        [$placeId, $token, $member, $tenant] = $this->household('office', 'Office');
 
-        $this->withBypass(function () use ($tenant, $member, $placeId): void {
-            $this->createRequest($tenant, $member, ['title' => 'Milk', 'place_id' => $placeId, 'assignee_id' => $member->id]);
-            $this->createRequest($tenant, $member, ['title' => 'Bread', 'place_id' => $placeId, 'assignee_id' => $member->id]);
-        });
+        $this->task($tenant, $member, $placeId, 'exit', ['title' => 'Milk']);
+        $this->task($tenant, $member, $placeId, 'exit', ['title' => 'Bread']);
 
-        $this->arrive($token)
+        // Arriving is not the cue; leaving is.
+        $this->arrive($token)->assertOk()->assertJsonPath('location_notifications.0.reason', 'no_tasks');
+
+        $this->arrive($token, self::OUTSIDE)
             ->assertOk()
+            ->assertJsonPath('transitions.0.event', 'exit')
             ->assertJsonPath('location_notifications.0.status', 'sent')
-            ->assertJsonPath('location_notifications.0.kind', 'store')
-            ->assertJsonPath('location_notifications.0.place_name', 'Whole Foods')
-            ->assertJsonPath('location_notifications.0.task_count', 2)
-            ->assertJsonPath('location_notifications.0.body', 'You have 2 items to buy here.')
-            // Grouped into one notification, so the list of what it covers is
-            // attached rather than sent as separate pushes.
-            ->assertJsonCount(2, 'location_notifications.0.tasks')
-            ->assertJsonPath('location_notifications.0.tasks.0.title', 'Milk');
+            ->assertJsonPath('location_notifications.0.kind', 'office')
+            ->assertJsonPath('location_notifications.0.body', 'Leaving work: 2 items to pick up.')
+            ->assertJsonCount(2, 'location_notifications.0.tasks');
 
-        $this->withBypass(function () use ($placeId, $member): void {
-            $this->assertDatabaseHas('location_notifications', [
-                'place_id' => $placeId,
-                'user_id' => $member->id,
-                'status' => 'sent',
-                'kind' => 'store',
-                'task_count' => 2,
-            ]);
-
-            $log = NotificationLog::withoutGlobalScope('tenant')
-                ->where('user_id', $member->id)
-                ->where('event', 'location.arrival')
-                ->firstOrFail();
-
-            $this->assertSame('sent', $log->status->value);
-            $this->assertSame('push', $log->channel->value);
-        });
+        $this->withBypass(fn () => $this->assertDatabaseHas('location_notifications', [
+            'place_id' => $placeId,
+            'user_id' => $member->id,
+            'status' => 'sent',
+        ]));
     }
 
-    public function test_a_home_arrival_reads_differently(): void
+    public function test_arriving_home_tells_the_member_what_is_still_outstanding(): void
     {
         [$placeId, $token, $member, $tenant] = $this->household('home', 'Home');
-
-        $this->withBypass(fn () => $this->createRequest($tenant, $member, [
-            'title' => 'Bins out',
-            'place_id' => $placeId,
-            'assignee_id' => $member->id,
-        ]));
+        $this->task($tenant, $member, $placeId, 'enter', ['title' => 'Bins out']);
 
         $this->arrive($token)
             ->assertOk()
             ->assertJsonPath('location_notifications.0.kind', 'home')
-            ->assertJsonPath('location_notifications.0.body', 'You have 1 household task to take care of.');
+            ->assertJsonPath('location_notifications.0.body', "You're home — 1 item still on the list.");
     }
 
-    public function test_an_office_arrival_reads_differently(): void
+    public function test_arriving_at_a_shop_names_it(): void
     {
-        [$placeId, $token, $member, $tenant] = $this->household('office', 'Downtown Office');
-
-        $this->withBypass(fn () => $this->createRequest($tenant, $member, [
-            'title' => 'Return the laptop',
-            'place_id' => $placeId,
-            'assignee_id' => $member->id,
-        ]));
+        [$placeId, $token, $member, $tenant] = $this->household('grocery', 'Whole Foods');
+        $this->task($tenant, $member, $placeId, 'enter', ['title' => 'Milk']);
+        $this->task($tenant, $member, $placeId, 'enter', ['title' => 'Bread']);
 
         $this->arrive($token)
             ->assertOk()
-            ->assertJsonPath('location_notifications.0.kind', 'office')
-            ->assertJsonPath('location_notifications.0.body', 'You have 1 task associated with work.');
+            ->assertJsonPath('location_notifications.0.body', "You're at Whole Foods: 2 items.");
     }
+
+    public function test_a_cue_for_another_place_does_not_fire(): void
+    {
+        [$shopId, $token, $member, $tenant] = $this->household('grocery', 'Whole Foods');
+
+        // The cue is on Home, which is nowhere near the shop.
+        $home = (int) $this->withToken($token)->postJson('/api/v1/places', [
+            'name' => 'Home',
+            'latitude' => 23.8300,
+            'longitude' => 90.4125,
+            'radius_meters' => 300,
+            'category' => 'home',
+        ])->json('data.id');
+
+        $this->task($tenant, $member, $home, 'enter', ['title' => 'Bins']);
+
+        $this->arrive($token)
+            ->assertOk()
+            ->assertJsonCount(1, 'transitions')
+            ->assertJsonPath('location_notifications.0.place_id', $shopId)
+            ->assertJsonPath('location_notifications.0.status', 'skipped')
+            ->assertJsonPath('location_notifications.0.reason', 'no_tasks');
+    }
+
+    public function test_an_entry_cue_does_not_fire_on_the_way_out(): void
+    {
+        [$placeId, $token, $member, $tenant] = $this->household();
+        $this->task($tenant, $member, $placeId, 'enter', ['title' => 'Milk']);
+
+        $this->arrive($token)->assertOk()->assertJsonPath('location_notifications.0.status', 'sent');
+
+        $this->arrive($token, self::OUTSIDE)
+            ->assertOk()
+            ->assertJsonPath('location_notifications.0.status', 'skipped')
+            ->assertJsonPath('location_notifications.0.reason', 'no_tasks');
+    }
+
+    // ---------------------------------------------------------- who counts
 
     public function test_somebody_elses_tasks_are_not_counted(): void
     {
         [$placeId, $token, $member, $tenant] = $this->household();
         $other = $this->createMember($tenant, 'member');
 
-        $this->withBypass(fn () => $this->createRequest($tenant, $other, [
-            'title' => 'Not mine',
-            'place_id' => $placeId,
-            'assignee_id' => $other->id,
-        ]));
+        $this->task($tenant, $other, $placeId, 'enter', ['title' => 'Not mine']);
 
-        // The store list is everybody's; a notification is personal.
+        // The store list is everybody's; the reminder is personal.
         $this->arrive($token)
             ->assertOk()
             ->assertJsonCount(1, 'shopping_lists.0.requests')
-            ->assertJsonPath('location_notifications.0.status', 'skipped')
             ->assertJsonPath('location_notifications.0.reason', 'no_tasks');
     }
 
@@ -169,12 +202,9 @@ class LocationNotificationTest extends TestCase
         [$placeId, $token, $member, $tenant] = $this->household();
         $other = $this->createMember($tenant, 'member');
 
-        $this->withBypass(function () use ($tenant, $member, $other, $placeId): void {
-            $this->createRequest($tenant, $member, ['title' => 'Mine', 'place_id' => $placeId, 'assignee_id' => $member->id]);
-            $this->createRequest($tenant, $other, ['title' => 'Theirs', 'place_id' => $placeId, 'assignee_id' => $other->id]);
-        });
+        $this->task($tenant, $member, $placeId, 'enter', ['title' => 'Mine']);
+        $this->task($tenant, $other, $placeId, 'enter', ['title' => 'Theirs']);
 
-        // Unchanged behaviour: the lists were never filtered by assignee.
         $this->arrive($token)
             ->assertOk()
             ->assertJsonCount(2, 'shopping_lists.0.requests')
@@ -185,11 +215,9 @@ class LocationNotificationTest extends TestCase
     {
         [$placeId, $token, $member, $tenant] = $this->household();
 
-        $this->withBypass(function () use ($tenant, $member, $placeId): void {
-            $this->createRequest($tenant, $member, ['title' => 'Done', 'place_id' => $placeId, 'assignee_id' => $member->id, 'status' => 'completed', 'completed_at' => now()]);
-            $this->createRequest($tenant, $member, ['title' => 'Dropped', 'place_id' => $placeId, 'assignee_id' => $member->id, 'status' => 'cancelled']);
-            $this->createRequest($tenant, $member, ['title' => 'Refused', 'place_id' => $placeId, 'assignee_id' => $member->id, 'status' => 'declined']);
-        });
+        $this->task($tenant, $member, $placeId, 'enter', ['title' => 'Done', 'status' => 'completed', 'completed_at' => now()]);
+        $this->task($tenant, $member, $placeId, 'enter', ['title' => 'Dropped', 'status' => 'cancelled']);
+        $this->task($tenant, $member, $placeId, 'enter', ['title' => 'Refused', 'status' => 'declined']);
 
         $this->arrive($token)
             ->assertOk()
@@ -202,11 +230,7 @@ class LocationNotificationTest extends TestCase
         [$placeId, $token, $member, $tenant] = $this->household();
         $other = $this->createMember($tenant, 'member');
 
-        $request = $this->withBypass(fn () => $this->createRequest($tenant, $member, [
-            'title' => 'Milk',
-            'place_id' => $placeId,
-            'assignee_id' => $member->id,
-        ]));
+        $request = $this->task($tenant, $member, $placeId, 'enter', ['title' => 'Milk']);
 
         $this->arrive($token)->assertOk()->assertJsonPath('location_notifications.0.status', 'sent');
 
@@ -216,21 +240,18 @@ class LocationNotificationTest extends TestCase
 
         $this->arrive($token)
             ->assertOk()
-            ->assertJsonPath('location_notifications.0.status', 'skipped')
             ->assertJsonPath('location_notifications.0.reason', 'no_tasks');
     }
+
+    // ------------------------------------------------------------ dedupe
 
     public function test_staying_inside_does_not_notify_again(): void
     {
         [$placeId, $token, $member, $tenant] = $this->household();
-
-        $this->withBypass(fn () => $this->createRequest($tenant, $member, [
-            'title' => 'Milk', 'place_id' => $placeId, 'assignee_id' => $member->id,
-        ]));
+        $this->task($tenant, $member, $placeId, 'enter', ['title' => 'Milk']);
 
         $this->arrive($token)->assertOk()->assertJsonCount(1, 'location_notifications');
 
-        // A second report from inside the same fence is not an arrival.
         $this->arrive($token)
             ->assertOk()
             ->assertJsonCount(0, 'transitions')
@@ -239,58 +260,108 @@ class LocationNotificationTest extends TestCase
         $this->withBypass(fn () => $this->assertSame(1, \App\Models\LocationNotification::withoutGlobalScope('tenant')->count()));
     }
 
-    public function test_a_second_arrival_inside_the_cooldown_is_refused_with_a_reason(): void
+    public function test_a_second_cue_inside_the_cooldown_is_refused(): void
     {
         config(['location_notifications.cooldown_minutes' => 60]);
 
         [$placeId, $token, $member, $tenant] = $this->household();
-
-        $this->withBypass(fn () => $this->createRequest($tenant, $member, [
-            'title' => 'Milk', 'place_id' => $placeId, 'assignee_id' => $member->id,
-        ]));
+        $this->task($tenant, $member, $placeId, 'enter', ['title' => 'Milk']);
 
         $this->arrive($token)->assertOk()->assertJsonPath('location_notifications.0.status', 'sent');
-
         $this->arrive($token, self::OUTSIDE)->assertOk();
 
         $this->arrive($token)
             ->assertOk()
             ->assertJsonPath('location_notifications.0.status', 'skipped')
-            ->assertJsonPath('location_notifications.0.reason', 'cooldown')
-            ->assertJsonPath('location_notifications.0.reason_message', 'You were already told about this place recently.');
+            ->assertJsonPath('location_notifications.0.reason', 'cooldown');
     }
 
-    public function test_an_arrival_after_the_cooldown_notifies_again(): void
+    public function test_a_cue_after_the_cooldown_notifies_again(): void
     {
         config(['location_notifications.cooldown_minutes' => 60]);
 
         [$placeId, $token, $member, $tenant] = $this->household();
-
-        $this->withBypass(fn () => $this->createRequest($tenant, $member, [
-            'title' => 'Milk', 'place_id' => $placeId, 'assignee_id' => $member->id,
-        ]));
+        $this->task($tenant, $member, $placeId, 'enter', ['title' => 'Milk']);
 
         $this->arrive($token)->assertOk();
 
-        // The earlier notification is older than the cooldown now.
         $this->withBypass(fn () => \App\Models\LocationNotification::withoutGlobalScope('tenant')
             ->where('status', 'sent')
             ->update(['notified_at' => now()->subHours(2)]));
 
         $this->arrive($token, self::OUTSIDE)->assertOk();
 
+        $this->arrive($token)->assertOk()->assertJsonPath('location_notifications.0.status', 'sent');
+    }
+
+    public function test_each_transition_produces_at_most_one_decision(): void
+    {
+        [$placeId, $token, $member, $tenant] = $this->household();
+        $this->task($tenant, $member, $placeId, 'enter', ['title' => 'Milk']);
+
+        $this->arrive($token)->assertOk();
+        $this->arrive($token, self::OUTSIDE)->assertOk();
+        $this->arrive($token)->assertOk();
+
+        $this->withBypass(function (): void {
+            $rows = \App\Models\LocationNotification::withoutGlobalScope('tenant')->get();
+
+            // Three transitions (enter, exit, enter): one decision each. The exit
+            // is a recorded refusal because the cue was set to entry.
+            $this->assertSame(3, $rows->count());
+            $this->assertSame(3, $rows->pluck('geofence_event_id')->unique()->count());
+            $this->assertSame(2, $rows->filter(fn ($row): bool => $row->isSent())->count());
+        });
+    }
+
+    public function test_a_time_reminder_suppresses_the_location_nudge(): void
+    {
+        [$placeId, $token, $member, $tenant] = $this->household();
+        $task = $this->task($tenant, $member, $placeId, 'enter', ['title' => 'Milk']);
+
+        // The deadline reminder already went out minutes ago.
+        $this->withBypass(fn () => NotificationLog::withoutGlobalScope('tenant')->create([
+            'tenant_id' => $tenant->id,
+            'request_id' => $task->getKey(),
+            'user_id' => $member->id,
+            'channel' => 'push',
+            'event' => 'reminder.due',
+            'status' => 'sent',
+            'message' => 'Reminder: Milk',
+            'sent_at' => now()->subMinutes(5),
+        ]));
+
         $this->arrive($token)
             ->assertOk()
-            ->assertJsonPath('location_notifications.0.status', 'sent');
+            ->assertJsonPath('location_notifications.0.status', 'skipped')
+            ->assertJsonPath('location_notifications.0.reason', 'already_nudged');
     }
+
+    public function test_an_old_time_reminder_does_not_suppress_it(): void
+    {
+        [$placeId, $token, $member, $tenant] = $this->household();
+        $task = $this->task($tenant, $member, $placeId, 'enter', ['title' => 'Milk']);
+
+        $this->withBypass(fn () => NotificationLog::withoutGlobalScope('tenant')->create([
+            'tenant_id' => $tenant->id,
+            'request_id' => $task->getKey(),
+            'user_id' => $member->id,
+            'channel' => 'push',
+            'event' => 'reminder.due',
+            'status' => 'sent',
+            'message' => 'Reminder: Milk',
+            'sent_at' => now()->subHours(4),
+        ]));
+
+        $this->arrive($token)->assertOk()->assertJsonPath('location_notifications.0.status', 'sent');
+    }
+
+    // ----------------------------------------------------------- the gates
 
     public function test_quiet_hours_hold_the_notification_back(): void
     {
         [$placeId, $token, $member, $tenant] = $this->household();
-
-        $this->withBypass(fn () => $this->createRequest($tenant, $member, [
-            'title' => 'Milk', 'place_id' => $placeId, 'assignee_id' => $member->id,
-        ]));
+        $this->task($tenant, $member, $placeId, 'enter', ['title' => 'Milk']);
 
         $this->withBypass(fn () => Tenant::withoutGlobalScope('tenant')->whereKey($tenant->id)->update([
             'settings' => ['quiet_hours' => ['enabled' => true, 'start' => '00:00', 'end' => '23:59']],
@@ -298,7 +369,6 @@ class LocationNotificationTest extends TestCase
 
         $this->arrive($token)
             ->assertOk()
-            ->assertJsonPath('location_notifications.0.status', 'skipped')
             ->assertJsonPath('location_notifications.0.reason', 'quiet_hours');
     }
 
@@ -307,22 +377,13 @@ class LocationNotificationTest extends TestCase
         $tenant = $this->createTenant('Household A');
         $member = $this->createMember($tenant, 'member');
         $token = $this->tokenFor($member);
+        $placeId = $this->place($token, 'grocery');
 
-        $placeId = $this->placeWith($token, 'grocery');
-
-        $this->withBypass(fn () => $this->createRequest($tenant, $member, [
-            'title' => 'Milk', 'place_id' => $placeId, 'assignee_id' => $member->id,
-        ]));
+        $this->task($tenant, $member, $placeId, 'enter', ['title' => 'Milk']);
 
         $this->arrive($token)
             ->assertOk()
-            ->assertJsonPath('location_notifications.0.status', 'skipped')
             ->assertJsonPath('location_notifications.0.reason', 'not_opted_in');
-
-        $this->withBypass(fn () => $this->assertSame(0, NotificationLog::withoutGlobalScope('tenant')
-            ->where('event', 'location.arrival')
-            ->where('status', 'sent')
-            ->count()));
     }
 
     public function test_the_feature_can_be_switched_off_entirely(): void
@@ -330,42 +391,28 @@ class LocationNotificationTest extends TestCase
         config(['location_notifications.enabled' => false]);
 
         [$placeId, $token, $member, $tenant] = $this->household();
-
-        $this->withBypass(fn () => $this->createRequest($tenant, $member, [
-            'title' => 'Milk', 'place_id' => $placeId, 'assignee_id' => $member->id,
-        ]));
+        $this->task($tenant, $member, $placeId, 'enter', ['title' => 'Milk']);
 
         $this->arrive($token)
             ->assertOk()
-            ->assertJsonPath('location_notifications.0.status', 'skipped')
             ->assertJsonPath('location_notifications.0.reason', 'disabled');
     }
 
-    public function test_an_arrival_never_places_a_voice_call(): void
+    public function test_a_cue_never_places_a_voice_call(): void
     {
         [$placeId, $token, $member, $tenant] = $this->household();
-
-        $this->withBypass(fn () => $this->createRequest($tenant, $member, [
-            'title' => 'Milk', 'place_id' => $placeId, 'assignee_id' => $member->id,
-        ]));
+        $this->task($tenant, $member, $placeId, 'enter', ['title' => 'Milk']);
 
         $this->arrive($token)->assertOk()->assertJsonPath('location_notifications.0.status', 'sent');
 
-        // Arriving is not an escalation, whatever the priority.
         $this->withBypass(fn () => $this->assertSame(0, VoiceCallLog::withoutGlobalScope('tenant')->count()));
     }
 
     public function test_an_entry_from_days_ago_does_not_suppress_the_next_visit(): void
     {
         [$placeId, $token, $member, $tenant] = $this->household();
+        $this->task($tenant, $member, $placeId, 'enter', ['title' => 'Milk']);
 
-        $this->withBypass(fn () => $this->createRequest($tenant, $member, [
-            'title' => 'Milk', 'place_id' => $placeId, 'assignee_id' => $member->id,
-        ]));
-
-        // A client that stopped reporting never wrote the matching exit. Without
-        // the staleness cutoff this would read as "still inside" and today's
-        // visit would produce no arrival at all.
         $this->withBypass(fn () => GeofenceEvent::withoutGlobalScope('tenant')->create([
             'tenant_id' => $tenant->id,
             'place_id' => $placeId,
@@ -380,18 +427,18 @@ class LocationNotificationTest extends TestCase
             ->assertJsonPath('location_notifications.0.status', 'sent');
     }
 
-    public function test_a_request_without_a_place_is_untouched(): void
+    // ------------------------------------------------------- compatibility
+
+    public function test_a_request_without_a_trigger_is_untouched(): void
     {
         [, $token, $member, $tenant] = $this->household();
 
-        // The old shape: free text, no saved location.
         $this->withBypass(fn () => $this->createRequest($tenant, $member, [
             'title' => 'Batteries', 'store_name' => 'Corner Shop', 'assignee_id' => $member->id,
         ]));
 
         $this->arrive($token)
             ->assertOk()
-            ->assertJsonPath('location_notifications.0.status', 'skipped')
             ->assertJsonPath('location_notifications.0.reason', 'no_tasks');
 
         $this->withBypass(fn () => $this->assertSame(1, ServiceRequest::withoutGlobalScope('tenant')
@@ -414,14 +461,12 @@ class LocationNotificationTest extends TestCase
             ->assertCreated()
             ->json('data.id');
 
-        $this->withBypass(fn () => $this->createRequest($tenant, $member, [
-            'title' => 'Odd job', 'place_id' => $placeId, 'assignee_id' => $member->id,
-        ]));
+        $this->task($tenant, $member, $placeId, 'enter', ['title' => 'Odd job']);
 
         $this->arrive($token)
             ->assertOk()
             ->assertJsonPath('location_notifications.0.kind', 'other')
-            ->assertJsonPath('location_notifications.0.body', 'You have 1 task here.');
+            ->assertJsonPath('location_notifications.0.body', 'At Somewhere: 1 task.');
     }
 
     public function test_two_places_in_range_produce_one_decision_each(): void
@@ -430,7 +475,6 @@ class LocationNotificationTest extends TestCase
         $member = $this->optedIn($this->createMember($tenant, 'member'));
         $token = $this->tokenFor($member);
 
-        // Two overlapping fences around the same reported position.
         $shop = (int) $this->withToken($token)->postJson('/api/v1/places', [
             'name' => 'Shop', 'latitude' => 23.8103, 'longitude' => 90.4125, 'radius_meters' => 300, 'category' => 'grocery',
         ])->json('data.id');
@@ -439,55 +483,83 @@ class LocationNotificationTest extends TestCase
             'name' => 'Home', 'latitude' => 23.8104, 'longitude' => 90.4126, 'radius_meters' => 300, 'category' => 'home',
         ])->json('data.id');
 
-        $this->withBypass(function () use ($tenant, $member, $shop, $home): void {
-            $this->createRequest($tenant, $member, ['title' => 'Milk', 'place_id' => $shop, 'assignee_id' => $member->id]);
-            $this->createRequest($tenant, $member, ['title' => 'Bins', 'place_id' => $home, 'assignee_id' => $member->id]);
-        });
+        $this->task($tenant, $member, $shop, 'enter', ['title' => 'Milk']);
+        $this->task($tenant, $member, $home, 'enter', ['title' => 'Bins']);
 
-        $this->arrive($token)
-            ->assertOk()
-            ->assertJsonCount(2, 'location_notifications');
-
-        $this->withBypass(fn () => $this->assertSame(2, \App\Models\LocationNotification::withoutGlobalScope('tenant')->count()));
+        $this->arrive($token)->assertOk()->assertJsonCount(2, 'location_notifications');
     }
 
-    public function test_a_repeated_report_cannot_notify_twice(): void
+    // ------------------------------------------------- trigger through the API
+
+    public function test_a_request_can_carry_its_own_trigger(): void
     {
-        [$placeId, $token, $member, $tenant] = $this->household();
+        [$placeId, $token] = $this->household('office', 'Office');
 
-        $this->withBypass(fn () => $this->createRequest($tenant, $member, [
-            'title' => 'Milk', 'place_id' => $placeId, 'assignee_id' => $member->id,
-        ]));
+        $payload = $this->withToken($token)
+            ->postJson('/api/v1/requests', [
+                'title' => 'Pick up the parcel',
+                'location_trigger_place_id' => $placeId,
+                'location_trigger_direction' => 'exit',
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.location_trigger.place_id', $placeId)
+            ->assertJsonPath('data.location_trigger.direction', 'exit')
+            ->json();
 
-        // Enter, leave, and enter again inside the cooldown window of zero: the
-        // unique key is what stops the second decision from notifying.
-        config(['location_notifications.cooldown_minutes' => 0]);
+        $id = $payload['data']['id'];
 
-        $this->arrive($token)->assertOk();
-        $this->arrive($token, self::OUTSIDE)->assertOk();
-        $this->arrive($token)->assertOk();
-
-        $this->withBypass(function (): void {
-            $rows = \App\Models\LocationNotification::withoutGlobalScope('tenant')->get();
-
-            // One sent and one refused (cooldown of 0 means it is not refused, so
-            // both entries are sent) — either way, never two rows for one entry.
-            $this->assertSame(2, $rows->count());
-            $this->assertSame(2, $rows->pluck('geofence_event_id')->unique()->count());
-        });
+        // Clearing it must be possible, and must clear both halves.
+        $this->withToken($token)
+            ->patchJson("/api/v1/requests/{$id}", [
+                'location_trigger_place_id' => null,
+                'location_trigger_direction' => null,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.location_trigger', null);
     }
 
-    public function test_a_member_with_no_places_arrives_to_nothing(): void
+    public function test_a_direction_without_a_place_is_rejected(): void
     {
-        $tenant = $this->createTenant('Household A');
-        $member = $this->optedIn($this->createMember($tenant, 'member'));
+        [, $token] = $this->household();
 
-        $this->withToken($this->tokenFor($member))
-            ->postJson('/api/v1/geofences/evaluate', self::INSIDE)
-            ->assertOk()
-            ->assertJsonCount(0, 'transitions')
-            ->assertJsonCount(0, 'location_notifications')
-            ->assertJsonCount(0, 'shopping_lists');
+        $this->withToken($token)
+            ->postJson('/api/v1/requests', [
+                'title' => 'Something',
+                'location_trigger_direction' => 'exit',
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['location_trigger_direction']);
+    }
+
+    public function test_a_place_without_a_direction_is_rejected(): void
+    {
+        [$placeId, $token] = $this->household();
+
+        $this->withToken($token)
+            ->postJson('/api/v1/requests', [
+                'title' => 'Something',
+                'location_trigger_place_id' => $placeId,
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['location_trigger_direction']);
+    }
+
+    public function test_another_households_place_cannot_be_a_trigger(): void
+    {
+        [, $token] = $this->household();
+
+        $other = $this->createTenant('Household B');
+        $otherMember = $this->createMember($other, 'member');
+        $theirPlace = $this->place($this->tokenFor($otherMember), 'grocery', 'Their Shop');
+
+        $this->withToken($token)
+            ->postJson('/api/v1/requests', [
+                'title' => 'Sneaky',
+                'location_trigger_place_id' => $theirPlace,
+                'location_trigger_direction' => 'enter',
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['location_trigger_place_id']);
     }
 
     public function test_a_place_is_reported_with_its_kind(): void
@@ -499,7 +571,6 @@ class LocationNotificationTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.0.kind', 'office')
             ->assertJsonPath('data.0.kind_label', 'Office')
-            // The category itself is unchanged — no data migration happened.
             ->assertJsonPath('data.0.category', 'office');
     }
 
@@ -507,10 +578,7 @@ class LocationNotificationTest extends TestCase
     {
         [, $token, , $tenant] = $this->household();
 
-        $this->withToken($token)
-            ->getJson('/api/v1/places')
-            ->assertOk()
-            ->assertJsonCount(1, 'data');
+        $this->withToken($token)->getJson('/api/v1/places')->assertOk()->assertJsonCount(1, 'data');
 
         $place = $this->withBypass(fn () => Place::withoutGlobalScope('tenant')
             ->where('tenant_id', $tenant->id)

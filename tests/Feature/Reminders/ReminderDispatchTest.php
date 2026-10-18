@@ -132,7 +132,7 @@ class ReminderDispatchTest extends TestCase
 
         $this->app->instance(PushSender::class, new class implements PushSender
         {
-            public function send(\App\Models\User $recipient, string $title, string $body): array
+            public function send(\App\Models\User $recipient, \App\Notifications\PushMessage $message): array
             {
                 throw new RuntimeException('provider exploded');
             }

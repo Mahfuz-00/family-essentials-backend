@@ -2,6 +2,8 @@
 
 namespace App\Geo;
 
+use App\Enums\AlertStyle;
+use App\Enums\GeofenceEventType;
 use App\Enums\LocationKind;
 use App\Enums\LocationNotificationReason;
 use App\Enums\LocationNotificationStatus;
@@ -15,27 +17,29 @@ use App\Models\Place;
 use App\Models\ServiceRequest;
 use App\Models\User;
 use App\Notifications\Channels\PushSender;
+use App\Notifications\PushMessage;
 use App\Reminders\QuietHours;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Throwable;
 
 /**
- * Tells a member about the work waiting where they have just arrived.
+ * Tells a member when a cue they chose fires: a saved place they asked to be
+ * reminded by, on entering or on leaving it.
  *
- * Runs from {@see GeofenceMonitor} on an entry transition, which is already the
- * only moment "arrival" can be observed: the evaluator emits a transition when
- * the inside/outside state *changes*, so standing still produces nothing.
+ * The trigger lives on the task (`location_trigger_place_id` +
+ * `location_trigger_direction`) — not on the place, and not on the task's shop.
+ * "Buy chips" and "remind me when I leave work" are different facts.
  *
- * Three rules govern everything here:
+ * Four rules govern everything here:
  *
  *  1. One decision per recorded entry, enforced by a unique idempotency key, so a
  *     repeated position report cannot notify twice.
- *  2. A refusal is recorded with its reason, never silently dropped — the voice
- *     policy's rule, applied to arrivals.
- *  3. Only the reader's own open work counts. The store shopping list is
- *     deliberately broader (everyone's open requests at that place); a
- *     notification is personal, so it is narrowed to the assignee.
+ *  2. A refusal is recorded with its reason, never silently dropped.
+ *  3. Only the reader's own open work counts — the store shopping list stays
+ *     everyone's and is unchanged.
+ *  4. One nudge, not two: a task reminded by time in the last few minutes is left
+ *     out of the location notification.
  */
 class LocationNotifier
 {
@@ -44,9 +48,10 @@ class LocationNotifier
         private readonly QuietHours $quietHours,
     ) {}
 
-    public function onEnter(User $user, Place $place, GeofenceEvent $event): LocationNotification
+    public function onTransition(User $user, Place $place, GeofenceEvent $event): LocationNotification
     {
         $kind = $place->kind();
+        $direction = $event->event;
 
         if (! (bool) config('location_notifications.enabled', true)) {
             return $this->refuse($user, $place, $event, $kind, LocationNotificationReason::Disabled);
@@ -74,16 +79,22 @@ class LocationNotifier
             return $this->refuse($user, $place, $event, $kind, LocationNotificationReason::Cooldown);
         }
 
-        $tasks = $this->waitingTasks($user, $place);
+        $tasks = $this->triggeredTasks($user, $place, $direction);
 
         if ($tasks->isEmpty()) {
             return $this->refuse($user, $place, $event, $kind, LocationNotificationReason::NoTasks);
         }
 
-        // The place's own name is the title: "Whole Foods", "Home". The body is
-        // the one sentence the kind decides.
+        // One nudge, not two: drop anything a time reminder already covered.
+        $recentlyNudged = $this->recentlyTimeNudged($user, $tasks);
+        $tasks = $tasks->reject(fn (ServiceRequest $task): bool => $recentlyNudged->contains($task->getKey()));
+
+        if ($tasks->isEmpty()) {
+            return $this->refuse($user, $place, $event, $kind, LocationNotificationReason::AlreadyNudged);
+        }
+
         $title = (string) $place->name;
-        $body = $kind->arrivalMessage($tasks->count());
+        $body = $kind->triggerMessage($direction, $tasks->count(), $title);
 
         // Created before delivery so the unique key reserves this entry: two
         // concurrent reports cannot both send.
@@ -101,7 +112,16 @@ class LocationNotifier
         ]);
 
         try {
-            $result = $this->push->send($user, $title, $body);
+            $result = $this->push->send($user, new PushMessage(
+                title: $title,
+                body: $body,
+                style: AlertStyle::fromUser($user->alert_style),
+                data: [
+                    'place_id' => (string) $place->getKey(),
+                    'notification_id' => (string) $record->getKey(),
+                ],
+                route: 'place:'.$place->getKey(),
+            ));
         } catch (Throwable $exception) {
             $log = $this->logDelivery($record, $user, NotificationStatus::Failed, $title, $body, error: $exception->getMessage());
 
@@ -137,18 +157,45 @@ class LocationNotifier
     }
 
     /**
-     * The member's own open work at this place, ordered as they would work it.
+     * The member's own open work that asked to be reminded by this exact cue.
      *
      * @return Collection<int, ServiceRequest>
      */
-    public function waitingTasks(User $user, Place $place): Collection
+    public function triggeredTasks(User $user, Place $place, GeofenceEventType $direction): Collection
     {
         return ServiceRequest::query()
-            ->where('place_id', $place->getKey())
+            ->where('location_trigger_place_id', $place->getKey())
+            ->where('location_trigger_direction', $direction->value)
             ->where('assignee_id', $user->getKey())
             ->whereIn('status', RequestStatus::openValues())
             ->orderBy('due_at')
             ->get();
+    }
+
+    /**
+     * Request ids whose time reminder was delivered inside the nudge window.
+     *
+     * @param  Collection<int, ServiceRequest>  $tasks
+     * @return Collection<int, int>
+     */
+    private function recentlyTimeNudged(User $user, Collection $tasks): Collection
+    {
+        $minutes = (int) config('location_notifications.nudge_window_minutes');
+
+        if ($minutes <= 0) {
+            return collect();
+        }
+
+        return NotificationLog::query()
+            ->where('user_id', $user->getKey())
+            ->whereIn('request_id', $tasks->pluck('id')->all())
+            ->where('status', NotificationStatus::Sent->value)
+            ->where('event', 'like', 'reminder.%')
+            ->where('sent_at', '>=', Carbon::now()->subMinutes($minutes))
+            ->pluck('request_id')
+            ->map(fn ($id): int => (int) $id)
+            ->unique()
+            ->values();
     }
 
     /**
@@ -167,7 +214,7 @@ class LocationNotifier
         $existing = LocationNotification::query()->where('idempotency_key', $key)->first();
 
         if ($existing !== null) {
-            return $existing;
+            return $existing->setRelation('place', $place);
         }
 
         $record = LocationNotification::create([

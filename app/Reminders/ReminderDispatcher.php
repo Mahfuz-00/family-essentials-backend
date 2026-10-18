@@ -2,6 +2,7 @@
 
 namespace App\Reminders;
 
+use App\Enums\AlertStyle;
 use App\Enums\NotificationChannel;
 use App\Enums\NotificationStatus;
 use App\Enums\ReminderStatus;
@@ -10,6 +11,7 @@ use App\Models\Reminder;
 use App\Models\ServiceRequest;
 use App\Models\User;
 use App\Notifications\Channels\PushSender;
+use App\Notifications\PushMessage;
 use Illuminate\Support\Carbon;
 use Throwable;
 
@@ -64,7 +66,13 @@ class ReminderDispatcher
         $body = $this->message($request);
 
         try {
-            $result = $this->push->send($recipient, $title, $body);
+            $result = $this->push->send($recipient, new PushMessage(
+                title: $title,
+                body: $body,
+                style: AlertStyle::fromUser($recipient->alert_style),
+                data: ['request_id' => (string) $request->getKey()],
+                route: 'request:'.$request->getKey(),
+            ));
         } catch (Throwable $exception) {
             $this->fail($reminder);
             $this->log($reminder, $recipient, NotificationStatus::Failed, $exception->getMessage(), body: $body);

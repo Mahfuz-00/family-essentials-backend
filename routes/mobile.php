@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\AlertStyleController;
 use App\Http\Controllers\Api\V1\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Api\V1\Auth\EmailVerificationController;
 use App\Http\Controllers\Api\V1\Auth\InvitationAcceptController;
@@ -62,6 +63,7 @@ Route::prefix('v1')->group(function () {
 
             // Arrival notifications, opt-in per member — mirrors voice consent.
             Route::patch('location-consent', [LocationNotificationPreferenceController::class, 'update']);
+            Route::patch('alert-style', [AlertStyleController::class, 'update']);
 
             Route::post('email/resend', [EmailVerificationController::class, 'resend'])->middleware('throttle:6,1');
             Route::post('phone/send-code', [PhoneVerificationController::class, 'send'])->middleware('throttle:6,1');

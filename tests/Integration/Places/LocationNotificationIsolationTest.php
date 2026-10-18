@@ -38,7 +38,11 @@ class LocationNotificationIsolationTest extends TestCase
         $place = $this->createPlace($tenant, 'Whole Foods', ['category' => 'grocery']);
 
         $this->withBypass(fn () => $this->createRequest($tenant, $member, [
-            'title' => 'Milk', 'place_id' => $place->id, 'assignee_id' => $member->id,
+            'title' => 'Milk',
+            'place_id' => $place->id,
+            'assignee_id' => $member->id,
+            'location_trigger_place_id' => $place->id,
+            'location_trigger_direction' => 'enter',
         ]));
 
         $this->withToken($this->tokenFor($member))
@@ -66,7 +70,11 @@ class LocationNotificationIsolationTest extends TestCase
         $theirPlace = $this->createPlace($theirs, 'Their Shop', ['category' => 'grocery']);
 
         $this->withBypass(fn () => $this->createRequest($theirs, $them, [
-            'title' => 'Their milk', 'place_id' => $theirPlace->id, 'assignee_id' => $them->id,
+            'title' => 'Their milk',
+            'place_id' => $theirPlace->id,
+            'assignee_id' => $them->id,
+            'location_trigger_place_id' => $theirPlace->id,
+            'location_trigger_direction' => 'enter',
         ]));
 
         $this->withToken($this->tokenFor($me))
@@ -96,8 +104,20 @@ class LocationNotificationIsolationTest extends TestCase
         $place = $this->createPlace($tenant, 'Shared shop', ['category' => 'grocery']);
 
         $this->withBypass(function () use ($tenant, $one, $two, $place): void {
-            $this->createRequest($tenant, $one, ['title' => 'One', 'place_id' => $place->id, 'assignee_id' => $one->id]);
-            $this->createRequest($tenant, $two, ['title' => 'Two', 'place_id' => $place->id, 'assignee_id' => $two->id]);
+            $this->createRequest($tenant, $one, [
+                'title' => 'One',
+                'place_id' => $place->id,
+                'assignee_id' => $one->id,
+                'location_trigger_place_id' => $place->id,
+                'location_trigger_direction' => 'enter',
+            ]);
+            $this->createRequest($tenant, $two, [
+                'title' => 'Two',
+                'place_id' => $place->id,
+                'assignee_id' => $two->id,
+                'location_trigger_place_id' => $place->id,
+                'location_trigger_direction' => 'enter',
+            ]);
         });
 
         $this->withToken($this->tokenFor($one))
@@ -126,7 +146,11 @@ class LocationNotificationIsolationTest extends TestCase
 
         $this->withBypass(function () use ($tenant, $member, $place, $other): void {
             $this->createRequest($tenant, $member, [
-                'title' => 'Milk', 'place_id' => $place->id, 'assignee_id' => $member->id,
+                'title' => 'Milk',
+                'place_id' => $place->id,
+                'assignee_id' => $member->id,
+                'location_trigger_place_id' => $place->id,
+                'location_trigger_direction' => 'enter',
             ]);
 
             // Somebody else's quiet hours must not silence this household.

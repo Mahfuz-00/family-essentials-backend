@@ -2,6 +2,7 @@
 
 namespace Tests\Unit;
 
+use App\Enums\GeofenceEventType;
 use App\Enums\LocationKind;
 use App\Enums\PlaceCategory;
 use App\Models\Place;
@@ -38,19 +39,23 @@ class LocationKindTest extends TestCase
         $this->assertSame(LocationKind::Other, $this->place('somewhere-else')->kind());
     }
 
-    public function test_the_arrival_message_matches_the_kind_and_the_count(): void
+    public function test_the_cue_message_matches_the_kind_the_direction_and_the_count(): void
     {
-        $this->assertSame('You have 1 household task to take care of.', LocationKind::Home->arrivalMessage(1));
-        $this->assertSame('You have 2 household tasks to take care of.', LocationKind::Home->arrivalMessage(2));
+        $enter = GeofenceEventType::Enter;
+        $exit = GeofenceEventType::Exit;
 
-        $this->assertSame('You have 1 task associated with work.', LocationKind::Office->arrivalMessage(1));
-        $this->assertSame('You have 3 tasks associated with work.', LocationKind::Office->arrivalMessage(3));
+        // Entering.
+        $this->assertSame("You're home — 1 item still on the list.", LocationKind::Home->triggerMessage($enter, 1, 'Home'));
+        $this->assertSame("You're home — 2 items still on the list.", LocationKind::Home->triggerMessage($enter, 2, 'Home'));
+        $this->assertSame('At work: 1 task for you.', LocationKind::Office->triggerMessage($enter, 1, 'Office'));
+        $this->assertSame('At work: 3 tasks for you.', LocationKind::Office->triggerMessage($enter, 3, 'Office'));
+        $this->assertSame("You're at Whole Foods: 3 items.", LocationKind::Store->triggerMessage($enter, 3, 'Whole Foods'));
+        $this->assertSame('At School Gate: 1 task.', LocationKind::Other->triggerMessage($enter, 1, 'School Gate'));
 
-        $this->assertSame('You have 1 item to buy here.', LocationKind::Store->arrivalMessage(1));
-        $this->assertSame('You have 3 items to buy here.', LocationKind::Store->arrivalMessage(3));
-
-        $this->assertSame('You have 1 task here.', LocationKind::Other->arrivalMessage(1));
-        $this->assertSame('You have 4 tasks here.', LocationKind::Other->arrivalMessage(4));
+        // Leaving — the moment the product is really about.
+        $this->assertSame('Leaving work: 2 items to pick up.', LocationKind::Office->triggerMessage($exit, 2, 'Office'));
+        $this->assertSame('Leaving Whole Foods — 3 items still on the list.', LocationKind::Store->triggerMessage($exit, 3, 'Whole Foods'));
+        $this->assertSame('You left home: 1 task still open.', LocationKind::Home->triggerMessage($exit, 1, 'Home'));
     }
 
     public function test_every_kind_has_a_label(): void

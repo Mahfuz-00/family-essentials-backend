@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Enums\AlertStyle;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -22,6 +23,7 @@ class UserResource extends JsonResource
             'is_platform_admin' => (bool) $this->is_platform_admin,
             'voice_opt_in' => (bool) $this->voice_opt_in,
             'location_notifications_opt_in' => (bool) $this->location_notifications_opt_in,
+            'alert_style' => AlertStyle::fromUser($this->alert_style)->value,
             'active_tenant_id' => $this->active_tenant_id,
             'created_at' => $this->created_at?->toISOString(),
         ];

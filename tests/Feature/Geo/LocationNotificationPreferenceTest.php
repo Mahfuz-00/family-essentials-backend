@@ -96,11 +96,19 @@ class LocationNotificationPreferenceTest extends TestCase
 
         $this->withBypass(function () use ($tenant, $optedIn, $notOptedIn, $place): void {
             $this->createRequest($tenant, $optedIn, [
-                'title' => 'Mine', 'place_id' => $place->id, 'assignee_id' => $optedIn->id,
+                'title' => 'Mine',
+                'place_id' => $place->id,
+                'assignee_id' => $optedIn->id,
+                'location_trigger_place_id' => $place->id,
+                'location_trigger_direction' => 'enter',
             ]);
 
             $this->createRequest($tenant, $notOptedIn, [
-                'title' => 'Theirs', 'place_id' => $place->id, 'assignee_id' => $notOptedIn->id,
+                'title' => 'Theirs',
+                'place_id' => $place->id,
+                'assignee_id' => $notOptedIn->id,
+                'location_trigger_place_id' => $place->id,
+                'location_trigger_direction' => 'enter',
             ]);
         });
 
@@ -126,7 +134,11 @@ class LocationNotificationPreferenceTest extends TestCase
 
         $this->withBypass(function () use ($tenant, $member, $place): void {
             $this->createRequest($tenant, $member, [
-                'title' => 'Bins', 'place_id' => $place->id, 'assignee_id' => $member->id,
+                'title' => 'Bins',
+                'place_id' => $place->id,
+                'assignee_id' => $member->id,
+                'location_trigger_place_id' => $place->id,
+                'location_trigger_direction' => 'enter',
             ]);
 
             Tenant::withoutGlobalScope('tenant')->whereKey($tenant->id)->update([

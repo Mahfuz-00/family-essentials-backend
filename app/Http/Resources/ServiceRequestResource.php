@@ -29,6 +29,8 @@ class ServiceRequestResource extends JsonResource
             'item' => $this->whenLoaded('item', fn () => new ItemResource($this->item)),
             'place_id' => $this->place_id,
             'place' => $this->whenLoaded('place', fn () => $this->place === null ? null : new PlaceResource($this->place)),
+            // The member's own reminder cue, separate from the shop above.
+            'location_trigger' => $this->locationTrigger(),
             'requested_by' => $this->whenLoaded('requester', fn () => $this->requester === null ? null : [
                 'id' => $this->requester->id,
                 'name' => $this->requester->name,
@@ -41,5 +43,23 @@ class ServiceRequestResource extends JsonResource
             'reminders' => $this->whenLoaded('reminders', fn () => ReminderResource::collection($this->reminders)),
             'voice_calls' => $this->whenLoaded('voiceCallLogs', fn () => VoiceCallResource::collection($this->voiceCallLogs)),
         ];
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function locationTrigger(): ?array
+    {
+        if ($this->location_trigger_place_id === null) {
+            return null;
+        }
+
+        return array_filter([
+            'place_id' => $this->location_trigger_place_id,
+            'direction' => $this->location_trigger_direction?->value,
+            // Only present when the relation was eager-loaded, so a list endpoint
+            // does not pay for a query per row.
+            'place_name' => $this->relationLoaded('triggerPlace') ? $this->triggerPlace?->name : null,
+        ], static fn ($value): bool => $value !== null);
     }
 }

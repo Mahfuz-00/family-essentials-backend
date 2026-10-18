@@ -23,6 +23,15 @@ return [
     'cooldown_minutes' => (int) env('LOCATION_NOTIFICATION_COOLDOWN_MINUTES', 60),
 
     /*
+    | One nudge, not two.
+    |
+    | A location notification is suppressed for tasks whose time reminder was
+    | delivered inside this window. One-directional on purpose: the deadline
+    | reminder is never suppressed by a location nudge.
+    */
+    'nudge_window_minutes' => (int) env('LOCATION_NUDGE_WINDOW_MINUTES', 120),
+
+    /*
     | A recorded entry older than this stops counting as "still here".
     |
     | Dwell state is derived from the last geofence event, and a client that stops

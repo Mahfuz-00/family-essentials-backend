@@ -3,15 +3,20 @@
 namespace App\Notifications\Channels;
 
 use App\Models\User;
+use App\Notifications\PushMessage;
 
 /**
- * Layer 2 delivery. Phase 4 ships a log driver; swapping in real FCM/APNs is a
- * config change once credentials exist.
+ * Delivery to a member's registered devices.
+ *
+ * The channel is chosen by token platform, so Android goes through FCM and iOS
+ * through APNs without either call site knowing.
  */
 interface PushSender
 {
     /**
      * @return array{provider: string, message_id: string|null}
+     *
+     * @throws \RuntimeException when nothing could be delivered
      */
-    public function send(User $recipient, string $title, string $body): array;
+    public function send(User $recipient, PushMessage $message): array;
 }

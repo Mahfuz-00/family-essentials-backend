@@ -4,12 +4,17 @@ namespace App\Providers;
 
 use App\Geo\GeofenceProvider;
 use App\Geo\LogGeofenceProvider;
+use App\Notifications\Channels\ApnsPushTransport;
+use App\Notifications\Channels\DevicePushSender;
+use App\Notifications\Channels\FcmPushTransport;
 use App\Notifications\Channels\LogPushSender;
 use App\Notifications\Channels\PushSender;
+use App\Notifications\Channels\PushTransport;
 use App\Ops\Backups\BackupRunner;
 use App\Ops\Backups\PostgresDumpRunner;
 use App\Services\Sms\LogSmsSender;
 use App\Services\Sms\SmsSender;
+use App\Support\GoogleServiceAccountToken;
 use App\Tenancy\TenantContext;
 use App\Voice\FakeVoiceCaller;
 use App\Voice\LogVoiceCaller;
@@ -33,9 +38,21 @@ class AppServiceProvider extends ServiceProvider
         });
 
         $this->app->bind(PushSender::class, function (): PushSender {
-            return match (config('push.driver')) {
-                default => new LogPushSender,
-            };
+            // One sender, one transport per token platform: Android through FCM,
+            // iOS through APNs. Either can be `log`, so a clone without
+            // credentials still runs end to end.
+            $android = (string) config('push.android');
+            $ios = (string) config('push.ios');
+
+            return new DevicePushSender(
+                [
+                    'android' => $this->pushTransport($android),
+                    'ios' => $this->pushTransport($ios),
+                ],
+                // While both are log drivers there is nothing to deliver to, so a
+                // member without a registered device is not an error yet.
+                requiresDevice: $android !== 'log' || $ios !== 'log',
+            );
         });
 
         $this->app->bind(GeofenceProvider::class, function (): GeofenceProvider {
@@ -66,5 +83,23 @@ class AppServiceProvider extends ServiceProvider
 
             return $base.'/reset-password?token='.$token.'&email='.urlencode($user->getEmailForPasswordReset());
         });
+    }
+
+    private function pushTransport(string $driver): PushTransport
+    {
+        return match ($driver) {
+            'fcm' => new FcmPushTransport(
+                (string) config('push.fcm.project_id'),
+                new GoogleServiceAccountToken((string) config('push.fcm.credentials')),
+            ),
+            'apns' => new ApnsPushTransport(
+                (string) config('push.apns.key_path'),
+                (string) config('push.apns.key_id'),
+                (string) config('push.apns.team_id'),
+                (string) config('push.apns.bundle_id'),
+                (bool) config('push.apns.production'),
+            ),
+            default => new LogPushSender,
+        };
     }
 }

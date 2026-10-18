@@ -15,6 +15,7 @@ enum LocationNotificationReason: string
     case QuietHours = 'quiet_hours';
     case Cooldown = 'cooldown';
     case NoTasks = 'no_tasks';
+    case AlreadyNudged = 'already_nudged';
 
     /**
      * The member-facing explanation, shown in their notification feed.
@@ -27,6 +28,7 @@ enum LocationNotificationReason: string
             self::QuietHours => 'Held back during household quiet hours.',
             self::Cooldown => 'You were already told about this place recently.',
             self::NoTasks => 'Nothing of yours is waiting here.',
+            self::AlreadyNudged => 'You were reminded about this a few minutes ago.',
         };
     }
 }
