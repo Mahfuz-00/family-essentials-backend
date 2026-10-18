@@ -136,6 +136,67 @@ class AuditLogTest extends TestCase
             ->assertJsonPath('data.0.action', 'tenant.created');
     }
 
+    public function test_a_single_ledger_entry_can_be_read_by_its_id(): void
+    {
+        $platform = $this->createPlatformAdmin();
+        $tenant = $this->createTenant('Household A');
+
+        $event = AuditEvent::create([
+            'trace_id' => '01HZZZZZZZZZZZZZZZZZZZZZDD',
+            'occurred_at' => now(),
+            'level' => 'warning',
+            'action' => 'tenant.suspended',
+            'tenant_id' => $tenant->id,
+            'actor_email' => 'platform@familyessentials.app',
+            'payload' => ['tenant' => 'Household A'],
+        ]);
+
+        $this->withToken($this->tokenFor($platform))
+            ->getJson("/api/v1/platform/audit-logs/{$event->id}")
+            ->assertOk()
+            ->assertJsonPath('data.id', $event->id)
+            ->assertJsonPath('data.trace_id', '01HZZZZZZZZZZZZZZZZZZZZZDD')
+            ->assertJsonPath('data.action', 'tenant.suspended')
+            ->assertJsonPath('data.level', 'warning')
+            // The household the entry is about, named — an id alone is not a
+            // readable security record.
+            ->assertJsonPath('data.tenant_name', 'Household A')
+            ->assertJsonPath('data.payload.tenant', 'Household A')
+            ->assertJsonStructure([
+                'data' => [
+                    'id', 'trace_id', 'occurred_at', 'level', 'action', 'tenant_id',
+                    'tenant_name', 'actor_user_id', 'actor_email', 'actor_role',
+                    'source_ip', 'http_status', 'payload',
+                ],
+            ]);
+    }
+
+    public function test_an_entry_that_does_not_exist_is_a_404(): void
+    {
+        $platform = $this->createPlatformAdmin();
+
+        $this->withToken($this->tokenFor($platform))
+            ->getJson('/api/v1/platform/audit-logs/999999')
+            ->assertNotFound();
+    }
+
+    public function test_a_household_member_cannot_read_a_ledger_entry(): void
+    {
+        $tenant = $this->createTenant('Household A');
+        $member = $this->createMember($tenant, 'member');
+
+        $event = AuditEvent::create([
+            'trace_id' => '01HZZZZZZZZZZZZZZZZZZZZZEE',
+            'occurred_at' => now(),
+            'level' => 'critical',
+            'action' => 'rls.violation',
+        ]);
+
+        $this->withToken($this->tokenFor($member))
+            ->getJson("/api/v1/platform/audit-logs/{$event->id}")
+            ->assertForbidden();
+    }
+
     public function test_metrics_include_security_totals(): void
     {
         $platform = $this->createPlatformAdmin();

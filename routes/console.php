@@ -1,12 +1,6 @@
 <?php
 
-use Illuminate\Foundation\Inspiring;
-use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
-
-Artisan::command('inspire', function () {
-    $this->comment(Inspiring::quote());
-})->purpose('Display an inspiring quote');
 
 Schedule::command('reminders:dispatch-due')->everyMinute()->withoutOverlapping();
 
@@ -15,6 +9,11 @@ Schedule::command('voice:escalate-overdue')->everyFiveMinutes()->withoutOverlapp
 // Recurring chores: one fresh request per rule per day, early enough that the
 // board is populated before the household wakes up.
 Schedule::command('essentials:spawn-recurring')->dailyAt('00:05')->withoutOverlapping();
+
+// Retention: reap the tables that only ever grow (config/retention.php). Daily
+// and well clear of the backup window, which wants the disk and the database to
+// itself.
+Schedule::command('essentials:prune-history')->dailyAt('03:15')->withoutOverlapping();
 
 // Operations: prove the scheduler is alive, and sample the system so uptime is
 // measured from observations rather than asserted.

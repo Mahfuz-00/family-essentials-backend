@@ -3,7 +3,6 @@
 namespace App\Notifications\Channels;
 
 use App\Models\DeviceToken;
-use App\Models\User;
 use App\Notifications\PushMessage;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -36,21 +35,5 @@ class LogPushSender implements PushTransport
         ]);
 
         return $messageId;
-    }
-
-    /**
-     * Convenience for anything that still wants a user-level send with no
-     * registered device (nothing does; kept out of the interface on purpose).
-     */
-    public function sendToUser(User $recipient, PushMessage $message): ?string
-    {
-        Log::info('Push dispatched (no device)', [
-            'to' => $recipient->email,
-            'style' => $message->style->value,
-            'title' => $message->title,
-            'body' => $message->body,
-        ]);
-
-        return null;
     }
 }

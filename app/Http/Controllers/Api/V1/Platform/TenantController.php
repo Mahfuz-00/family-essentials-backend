@@ -8,6 +8,7 @@ use App\Http\Requests\Tenancy\StoreTenantRequest;
 use App\Http\Requests\Tenancy\UpdateTenantRequest;
 use App\Http\Resources\TenantResource;
 use App\Models\Tenant;
+use App\Tenancy\Tenancy;
 use App\Tenancy\TenantProvisioner;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -44,25 +45,32 @@ class TenantController extends Controller
             ->withCount('members');
 
         return response()->streamDownload(function () use ($query): void {
-            $out = fopen('php://output', 'w');
+            // A streamed body is sent by the front controller, *after* the
+            // middleware stack has unwound — so `EnsurePlatformAdmin` has already
+            // restored the previous tenant context by the time this runs. Without
+            // the bypass re-applied here, the `tenants` policy filters every row
+            // out and the export is a header with nothing under it.
+            Tenancy::bypass(function () use ($query): void {
+                $out = fopen('php://output', 'w');
 
-            fputcsv($out, ['id', 'name', 'slug', 'status', 'subscription_tier', 'members', 'created_at']);
+                fputcsv($out, ['id', 'name', 'slug', 'status', 'subscription_tier', 'members', 'created_at']);
 
-            $query->orderBy('id')->chunk(500, function ($rows) use ($out): void {
-                foreach ($rows as $row) {
-                    fputcsv($out, [
-                        $row->id,
-                        $row->name,
-                        $row->slug,
-                        $row->status,
-                        $row->subscription_tier,
-                        $row->members_count,
-                        $row->created_at?->toISOString(),
-                    ]);
-                }
+                $query->orderBy('id')->chunk(500, function ($rows) use ($out): void {
+                    foreach ($rows as $row) {
+                        fputcsv($out, [
+                            $row->id,
+                            $row->name,
+                            $row->slug,
+                            $row->status,
+                            $row->subscription_tier,
+                            $row->members_count,
+                            $row->created_at?->toISOString(),
+                        ]);
+                    }
+                });
+
+                fclose($out);
             });
-
-            fclose($out);
         }, 'tenants.csv', ['Content-Type' => 'text/csv']);
     }
 

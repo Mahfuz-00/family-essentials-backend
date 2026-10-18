@@ -118,6 +118,8 @@ explicitly because `db:seed` suppresses model events.
 | Pantry | 5 essentials — two due (one by safety stock, one by cadence), one healthy, one inactive | 2 |
 | Feedback | a new bug, a triaged feature request, a resolved one with a note | a new feature request |
 | Device tokens (push metadata) | two, one per member | one |
+| Household ledger (`/money`) | one — **Household budget**, owned by Tanvir with Sarah in it as a **summary-only** member, and six entries across the grocery and household categories in the previous and current month (one of them income) | — |
+| Recurring rules (`/recurring`) | two — a weekly grocery run cueing on arrival at Whole Foods Market, and a monthly bills rule carrying an amount into the ledger; both due within days | — |
 | Arrival notifications | **opted in** (Tanvir), off (Sarah) | **opted in** (Bradley), off (Elena) |
 
 Both admins are opted in so arrival notifications can be demonstrated without

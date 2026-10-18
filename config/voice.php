@@ -37,6 +37,8 @@ return [
     |
     */
 
-    'webhook_secret' => env('VOICE_WEBHOOK_SECRET', 'dev-voice-secret'),
+    // No default on purpose: a shipped fallback would let a deployment that
+    // never set it accept forged callbacks. Empty means "refuse every webhook".
+    'webhook_secret' => env('VOICE_WEBHOOK_SECRET'),
 
 ];

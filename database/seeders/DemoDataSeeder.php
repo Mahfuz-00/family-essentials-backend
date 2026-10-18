@@ -2,14 +2,23 @@
 
 namespace Database\Seeders;
 
+use App\Enums\Cadence;
+use App\Enums\GeofenceEventType;
+use App\Enums\LedgerEntryDirection;
+use App\Enums\LedgerEntrySource;
+use App\Enums\LedgerRole;
 use App\Enums\PlaceCategory;
 use App\Enums\RequestPriority;
 use App\Enums\RequestStatus;
+use App\Ledgers\LedgerMembership;
 use App\Models\DeviceToken;
 use App\Models\Essential;
 use App\Models\FeedbackReport;
 use App\Models\Item;
+use App\Models\Ledger;
+use App\Models\LedgerEntry;
 use App\Models\Place;
+use App\Models\RecurringRule;
 use App\Models\ServiceRequest;
 use App\Models\Tenant;
 use App\Models\User;
@@ -82,7 +91,10 @@ class DemoDataSeeder extends Seeder
             (int) $bradley->id,
         );
 
-        $this->command?->info('Demo data seeded: places, requests, pantry, feedback and device tokens.');
+        $this->command?->info(
+            'Demo data seeded: places, requests, pantry, feedback, device tokens, '
+            .'a household ledger and two recurring rules.'
+        );
     }
 
     /**
@@ -222,6 +234,85 @@ class DemoDataSeeder extends Seeder
 
         $this->device($admin, 'ios', 'demo-ios-tanvir');
         $this->device($member, 'android', 'demo-android-sarah');
+
+        // Money: one ledger the admin owns, the other adult in it as a
+        // summary-only member, and entries across two months and two categories
+        // so /money has a breakdown rather than an empty state.
+        $ledger = $this->ledger($admin, 'Household budget');
+        $this->ledgerMembership($ledger, $admin, LedgerRole::Owner);
+        $this->ledgerMembership($ledger, $member, LedgerRole::Summary);
+
+        $this->ledgerEntry($ledger, $admin, [
+            'description' => 'Big monthly shop',
+            'category' => 'grocery',
+            'amount_minor' => 512_000,
+            'occurred_on' => Carbon::today()->subMonthNoOverflow()->startOfMonth()->addDays(9),
+        ]);
+
+        $this->ledgerEntry($ledger, $member, [
+            'description' => 'Utilities top-up',
+            'category' => 'household',
+            'amount_minor' => 180_000,
+            'occurred_on' => Carbon::today()->subMonthNoOverflow()->endOfMonth(),
+        ]);
+
+        $this->ledgerEntry($ledger, $admin, [
+            'description' => 'Corner shop top-up',
+            'category' => 'grocery',
+            'amount_minor' => 68_500,
+            'occurred_on' => Carbon::today()->startOfMonth(),
+        ]);
+
+        $this->ledgerEntry($ledger, $member, [
+            'description' => 'Cleaning supplies',
+            'category' => 'household',
+            'amount_minor' => 94_000,
+            'occurred_on' => Carbon::today()->startOfMonth(),
+        ]);
+
+        $this->ledgerEntry($ledger, $admin, [
+            'description' => 'Weekly shop',
+            'category' => 'grocery',
+            'amount_minor' => 245_000,
+            'occurred_on' => Carbon::today(),
+        ]);
+
+        $this->ledgerEntry($ledger, $member, [
+            'description' => 'Household contribution',
+            'amount_minor' => 600_000,
+            'direction' => LedgerEntryDirection::Income,
+            'category' => null,
+            'occurred_on' => Carbon::today()->startOfMonth(),
+        ]);
+
+        // Chores that come round on their own: a weekly one that reminds on
+        // arrival at the shop, and a monthly one that carries money into the
+        // ledger. Both are due within days, so the board shows them moving.
+        $this->recurringRule($admin, [
+            'title' => 'Weekly grocery run',
+            'cadence' => Cadence::Weekly,
+            'weekday' => (int) Carbon::today()->addDays(3)->dayOfWeek,
+            'next_run_on' => Carbon::today()->addDays(3)->toDateString(),
+            'category' => 'grocery',
+            'priority' => RequestPriority::Normal,
+            'assignee_id' => $admin->id,
+            'place_id' => $shop->id,
+            'location_trigger_place_id' => $shop->id,
+            'location_trigger_direction' => GeofenceEventType::Enter,
+        ]);
+
+        $this->recurringRule($admin, [
+            'title' => 'Settle the household bills',
+            'cadence' => Cadence::Monthly,
+            'day_of_month' => (int) Carbon::today()->addDays(12)->day,
+            'next_run_on' => Carbon::today()->addDays(12)->toDateString(),
+            'category' => 'household',
+            'priority' => RequestPriority::High,
+            'notes' => 'Water, gas and internet in one payment.',
+            'assignee_id' => $admin->id,
+            'amount_minor' => 320_000,
+            'ledger_id' => $ledger->id,
+        ]);
 
         $this->feedback($admin, [
             'type' => 'bug',
@@ -470,5 +561,89 @@ class DemoDataSeeder extends Seeder
         ], $attributes))->save();
 
         return $report;
+    }
+
+    private function ledger(User $owner, string $name): Ledger
+    {
+        $existing = Ledger::query()->where('name', $name)->first();
+
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        $ledger = new Ledger;
+
+        $ledger->forceFill([
+            'tenant_id' => $this->tenantId,
+            'name' => $name,
+            'owner_id' => $owner->id,
+            'currency' => (string) config('ledger.currency'),
+        ])->save();
+
+        return $ledger;
+    }
+
+    /**
+     * Added through the same service the API uses, so a seeded membership row is
+     * shaped exactly like one the app wrote — and is idempotent by natural key.
+     */
+    private function ledgerMembership(Ledger $ledger, User $member, LedgerRole $role): void
+    {
+        app(LedgerMembership::class)->put($ledger, $member, $role);
+    }
+
+    /**
+     * `amount_minor` is an integer count of minor units: the ledger never sees a
+     * float.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    private function ledgerEntry(Ledger $ledger, User $writer, array $attributes): LedgerEntry
+    {
+        $existing = LedgerEntry::query()->where('description', $attributes['description'])->first();
+
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        $entry = new LedgerEntry;
+
+        $entry->forceFill(array_merge([
+            'tenant_id' => $this->tenantId,
+            'ledger_id' => $ledger->id,
+            'direction' => LedgerEntryDirection::Expense,
+            'occurred_on' => Carbon::today(),
+            'source' => LedgerEntrySource::Manual,
+            'created_by' => $writer->id,
+            'paid_by' => $writer->id,
+        ], $attributes))->save();
+
+        return $entry;
+    }
+
+    /**
+     * A repeating chore. The rule is a recipe, never the task: the daily spawn
+     * command turns each cycle into a fresh request.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    private function recurringRule(User $creator, array $attributes): RecurringRule
+    {
+        $existing = RecurringRule::query()->where('title', $attributes['title'])->first();
+
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        $rule = new RecurringRule;
+
+        $rule->forceFill(array_merge([
+            'tenant_id' => $this->tenantId,
+            'created_by' => $creator->id,
+            'priority' => RequestPriority::Normal,
+            'active' => true,
+        ], $attributes))->save();
+
+        return $rule;
     }
 }
