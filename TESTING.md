@@ -103,3 +103,42 @@ Two households that cannot see each other's data is deliberate: signing in as
 The web dashboard signs in through `/api/v1`, the Flutter app through
 `/mobile/v1`. A token minted on one surface is rejected by the other, so use the
 matching app for each.
+
+### What `db:seed` puts in the database
+
+`DatabaseSeeder` creates the accounts above; `DemoDataSeeder` then fills both
+households so every screen has something to show. Both are **safe to run again**
+— each row is looked up before it is created, and the demo rows pin `tenant_id`
+explicitly because `db:seed` suppresses model events.
+
+| | The Tanvir Household | The Bradley Household |
+|---|---|---|
+| Saved places | Home, Office, Whole Foods Market, CVS Pharmacy, School Gate | Home, Office, Tesco Express |
+| Requests | 11 across every board column, including overdue, due today, backlog, completed today, one with free-text `store_name` only and one with no location | 3 (one overdue, one due today, one backlog) |
+| Pantry | 5 essentials — two due (one by safety stock, one by cadence), one healthy, one inactive | 2 |
+| Feedback | a new bug, a triaged feature request, a resolved one with a note | a new feature request |
+| Device tokens | one iOS, one Android | one Android |
+| Arrival notifications | **opted in** (Tanvir), off (Sarah) | **opted in** (Bradley), off (Elena) |
+
+Both admins are opted in so arrival notifications can be demonstrated without
+changing a setting first; the other two members are opted out, which is how you
+see the refusal path.
+
+### Demonstrating arrival notifications
+
+The seeded work is shaped for it — Tanvir has open tasks at Home, Office, Whole
+Foods and School Gate:
+
+| Place | Open tasks | What the notification says |
+|---|---|---|
+| Home | 1 | "You have 1 household task to take care of." |
+| Office | 1 | "You have 1 task associated with work." |
+| Whole Foods Market | 2 | "You have 2 items to buy here." |
+| School Gate | 1 | "You have 1 task here." |
+
+In the app, Today → **Simulate arriving at Whole Foods Market**. The first
+arrival sends one notification; arriving again immediately is recorded as a
+`cooldown` refusal. The same arrival as Sarah is recorded as `not_opted_in`.
+
+Do not send a test arrival before you want to demo one — it starts the cooldown
+(`LOCATION_NOTIFICATION_COOLDOWN_MINUTES`, 60 by default).
