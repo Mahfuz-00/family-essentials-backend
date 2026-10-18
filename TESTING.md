@@ -117,12 +117,18 @@ explicitly because `db:seed` suppresses model events.
 | Requests | 11 across every board column, including overdue, due today, backlog, completed today, one with free-text `store_name` only and one with no location | 3 (one overdue, one due today, one backlog) |
 | Pantry | 5 essentials — two due (one by safety stock, one by cadence), one healthy, one inactive | 2 |
 | Feedback | a new bug, a triaged feature request, a resolved one with a note | a new feature request |
-| Device tokens | one iOS, one Android | one Android |
+| Device tokens (push metadata) | two, one per member | one |
 | Arrival notifications | **opted in** (Tanvir), off (Sarah) | **opted in** (Bradley), off (Elena) |
 
 Both admins are opted in so arrival notifications can be demonstrated without
 changing a setting first; the other two members are opted out, which is how you
 see the refusal path.
+
+**One Flutter codebase serves both platforms.** A device token's `platform` value
+is metadata the push provider needs (FCM vs APNs), not a difference in the app —
+the same screens, blocs and feature slices run everywhere. The only per-platform
+artefacts are the declarations each operating system requires: the location
+permissions in `AndroidManifest.xml` and the usage string in `Info.plist`.
 
 ### Demonstrating arrival notifications
 
