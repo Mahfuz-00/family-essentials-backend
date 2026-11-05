@@ -26,10 +26,12 @@ use App\Http\Controllers\Api\V1\Platform\BackupController as PlatformBackupContr
 use App\Http\Controllers\Api\V1\Platform\FeedbackController as PlatformFeedbackController;
 use App\Http\Controllers\Api\V1\Platform\HealthController as PlatformHealthController;
 use App\Http\Controllers\Api\V1\Platform\IncidentController as PlatformIncidentController;
+use App\Http\Controllers\Api\V1\Platform\MarketingController as PlatformMarketingController;
 use App\Http\Controllers\Api\V1\Platform\MetricsController as PlatformMetricsController;
 use App\Http\Controllers\Api\V1\Platform\RefundController as PlatformRefundController;
 use App\Http\Controllers\Api\V1\Platform\SettingsController as PlatformSettingsController;
 use App\Http\Controllers\Api\V1\Platform\TenantController as PlatformTenantController;
+use App\Http\Controllers\Api\V1\MarketingPublicController;
 use App\Http\Controllers\Api\V1\ProfileController;
 use App\Http\Controllers\Api\V1\Recurring\RecurringRuleController;
 use App\Http\Controllers\Api\V1\Requests\ItemController;
@@ -96,6 +98,10 @@ Route::prefix('v1')->group(function () {
         });
     });
 
+    // Public marketing endpoints (leads & active announcement banners)
+    Route::post('marketing/subscribe', [MarketingPublicController::class, 'subscribe'])->middleware('throttle:10,1');
+    Route::get('marketing/announcements/active', [MarketingPublicController::class, 'activeAnnouncements']);
+
     // ---- Platform Admin (landlord) -------------------------------------
     Route::middleware(['auth:sanctum', 'abilities:dashboard', 'platform.admin'])
         ->prefix('platform')
@@ -131,6 +137,27 @@ Route::prefix('v1')->group(function () {
             Route::post('refunds/policy', [PlatformRefundController::class, 'updatePolicy']);
             Route::post('refunds/{id}/approve', [PlatformRefundController::class, 'approve']);
             Route::post('refunds/{id}/reject', [PlatformRefundController::class, 'reject']);
+
+            // ---- Marketing & Growth Console ---------------------------------
+            Route::get('marketing/overview', [PlatformMarketingController::class, 'overview']);
+
+            Route::get('marketing/promotions', [PlatformMarketingController::class, 'promotions']);
+            Route::post('marketing/promotions', [PlatformMarketingController::class, 'storePromotion']);
+            Route::post('marketing/promotions/{promotion}/toggle', [PlatformMarketingController::class, 'togglePromotion']);
+            Route::delete('marketing/promotions/{promotion}', [PlatformMarketingController::class, 'deletePromotion']);
+
+            Route::get('marketing/announcements', [PlatformMarketingController::class, 'announcements']);
+            Route::post('marketing/announcements', [PlatformMarketingController::class, 'storeAnnouncement']);
+            Route::post('marketing/announcements/{announcement}/toggle', [PlatformMarketingController::class, 'toggleAnnouncement']);
+            Route::delete('marketing/announcements/{announcement}', [PlatformMarketingController::class, 'deleteAnnouncement']);
+
+            Route::get('marketing/leads/export', [PlatformMarketingController::class, 'exportLeads']);
+            Route::get('marketing/leads', [PlatformMarketingController::class, 'leads']);
+            Route::patch('marketing/leads/{lead}', [PlatformMarketingController::class, 'updateLead']);
+            Route::delete('marketing/leads/{lead}', [PlatformMarketingController::class, 'deleteLead']);
+
+            Route::get('marketing/referrals', [PlatformMarketingController::class, 'getReferralSettings']);
+            Route::post('marketing/referrals', [PlatformMarketingController::class, 'updateReferralSettings']);
 
             // ---- Feedback inbox: what households are telling us -------------
             Route::get('feedback', [PlatformFeedbackController::class, 'index']);
