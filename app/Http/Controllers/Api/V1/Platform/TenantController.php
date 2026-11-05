@@ -93,7 +93,57 @@ class TenantController extends Controller
 
     public function show(string $tenant): JsonResponse
     {
-        return (new TenantResource($this->findTenant($tenant)->loadCount('members')))->response();
+        $model = $this->findTenant($tenant);
+
+        // Load members with user profiles and pivot roles
+        $members = $model->users()
+            ->select(['users.id', 'users.name', 'users.email', 'users.phone', 'users.created_at'])
+            ->get()
+            ->map(fn ($user) => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'phone' => $user->phone,
+                'role' => $user->pivot->role ?? 'member',
+                'status' => $user->pivot->status ?? 'active',
+                'joined_at' => $user->pivot->created_at?->toISOString() ?? $user->created_at?->toISOString(),
+            ]);
+
+        // Calculate resource counts for this specific tenant
+        $placesCount = \App\Models\Place::query()->where('tenant_id', $model->id)->count();
+        $totalRequests = \App\Models\ServiceRequest::query()->where('tenant_id', $model->id)->count();
+        $completedRequests = \App\Models\ServiceRequest::query()->where('tenant_id', $model->id)->where('status', 'completed')->count();
+        $pendingRequests = \App\Models\ServiceRequest::query()->where('tenant_id', $model->id)->where('status', 'pending')->count();
+        $ledgersCount = \App\Models\Ledger::query()->where('tenant_id', $model->id)->count();
+        $essentialsCount = \App\Models\Essential::query()->where('tenant_id', $model->id)->count();
+        $invitationsCount = \App\Models\TenantInvitation::query()->where('tenant_id', $model->id)->count();
+
+        // Ledger financial volume
+        $totalExpensesMinor = (int) \App\Models\LedgerEntry::query()
+            ->where('tenant_id', $model->id)
+            ->sum('amount_minor');
+
+        $quotas = app(\App\Plans\QuotaService::class)->report($model);
+
+        $tenantResource = (new TenantResource($model->loadCount('members')))->resolve();
+
+        return response()->json([
+            'data' => $tenantResource,
+            'tenant' => $tenantResource,
+            'members' => $members,
+            'counts' => [
+                'members_count' => $model->members()->count(),
+                'places_count' => $placesCount,
+                'requests_count' => $totalRequests,
+                'requests_pending' => $pendingRequests,
+                'requests_completed' => $completedRequests,
+                'ledgers_count' => $ledgersCount,
+                'essentials_count' => $essentialsCount,
+                'invitations_count' => $invitationsCount,
+                'total_expenses_cents' => $totalExpensesMinor,
+            ],
+            'quotas' => $quotas,
+        ]);
     }
 
     public function update(UpdateTenantRequest $request, string $tenant): JsonResponse
