@@ -14,6 +14,59 @@ class SettingsController extends Controller
 {
     public function __construct(private readonly AuditRecorder $audit) {}
 
+    public function getSystemSettings(): JsonResponse
+    {
+        $settings = PlatformSetting::get('system_settings', [
+            'app_name' => 'FairShare',
+            'support_email' => 'support@fairshare.app',
+            'company_name' => 'FairShare Operations Inc.',
+            'default_plan' => 'starter',
+            'default_trial_days' => 14,
+            'allow_registrations' => true,
+            'require_email_verification' => true,
+            'session_timeout_minutes' => 120,
+            'max_members_free_tier' => 4,
+            'maintenance_mode' => false,
+            'maintenance_announcement' => '',
+            'platform_version' => '2.4.0',
+        ]);
+
+        return response()->json(['data' => $settings]);
+    }
+
+    public function updateSystemSettings(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'app_name' => ['required', 'string', 'max:100'],
+            'support_email' => ['required', 'email'],
+            'company_name' => ['required', 'string', 'max:100'],
+            'default_plan' => ['required', 'string', 'in:free,starter,family_plus,enterprise'],
+            'default_trial_days' => ['required', 'integer', 'min:0', 'max:90'],
+            'allow_registrations' => ['required', 'boolean'],
+            'require_email_verification' => ['required', 'boolean'],
+            'session_timeout_minutes' => ['required', 'integer', 'min:15', 'max:1440'],
+            'max_members_free_tier' => ['required', 'integer', 'min:1', 'max:20'],
+            'maintenance_mode' => ['required', 'boolean'],
+            'maintenance_announcement' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $current = PlatformSetting::get('system_settings', []);
+        $merged = array_merge($current, $validated);
+
+        PlatformSetting::set('system_settings', $merged);
+
+        $this->audit->record('platform.system_settings_updated', [
+            'app_name' => $validated['app_name'],
+            'allow_registrations' => $validated['allow_registrations'],
+            'maintenance_mode' => $validated['maintenance_mode'],
+        ], 'info');
+
+        return response()->json([
+            'message' => 'System settings updated successfully.',
+            'data' => $merged,
+        ]);
+    }
+
     public function getPaymentGateway(): JsonResponse
     {
         $settings = PlatformSetting::get('payment_gateway', [
