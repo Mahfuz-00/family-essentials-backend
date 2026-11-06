@@ -27,6 +27,7 @@ use App\Http\Controllers\Api\V1\Requests\NlpDispatcherController;
 use App\Http\Controllers\Api\V1\Platform\AnalyticsController as PlatformAnalyticsController;
 use App\Http\Controllers\Api\V1\Platform\AuditLogController as PlatformAuditLogController;
 use App\Http\Controllers\Api\V1\Platform\BackupController as PlatformBackupController;
+use App\Http\Controllers\Api\V1\Platform\BillingController as PlatformBillingController;
 use App\Http\Controllers\Api\V1\Platform\FeedbackController as PlatformFeedbackController;
 use App\Http\Controllers\Api\V1\Platform\HealthController as PlatformHealthController;
 use App\Http\Controllers\Api\V1\Platform\IncidentController as PlatformIncidentController;
@@ -149,6 +150,13 @@ Route::prefix('v1')->group(function () {
             Route::post('refunds/policy', [PlatformRefundController::class, 'updatePolicy']);
             Route::post('refunds/{id}/approve', [PlatformRefundController::class, 'approve']);
             Route::post('refunds/{id}/reject', [PlatformRefundController::class, 'reject']);
+
+            // ---- Billing, Invoices & Cash Settlement Queue ------------------
+            Route::get('billing/invoices', [PlatformBillingController::class, 'index']);
+            Route::get('billing/pending-cash', [PlatformBillingController::class, 'pendingCash']);
+            Route::post('billing/invoices/{invoice}/approve-cash', [PlatformBillingController::class, 'approveCash']);
+            Route::post('billing/invoices/{invoice}/reject-cash', [PlatformBillingController::class, 'rejectCash']);
+            Route::get('notifications', [PlatformBillingController::class, 'notifications']);
 
             // ---- Marketing & Growth Console ---------------------------------
             Route::get('marketing/overview', [PlatformMarketingController::class, 'overview']);

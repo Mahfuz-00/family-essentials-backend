@@ -94,7 +94,7 @@ class SettingsController extends Controller
             'cash' => [
                 'enabled' => true,
                 'instructions' => 'Cash payment upon in-person settlement or physical invoice collection.',
-                'auto_mark_paid' => true,
+                'auto_mark_paid' => false,
             ],
         ];
 

@@ -224,16 +224,18 @@ class InvoiceController extends Controller
             $amountCents = (int) round($amountCents * 10); // 2 months free on annual
         }
 
-        // 1. Update household tier
-        $tenant->subscription_tier = $tier;
-        $tenant->status = 'active';
-        $tenant->save();
-
         $isCash = $paymentMethod === 'cash';
-        $autoMarkPaid = $isCash ? ($cashSettings['auto_mark_paid'] ?? true) : true;
+        $autoMarkPaid = $isCash ? (bool) ($cashSettings['auto_mark_paid'] ?? false) : true;
         $status = $autoMarkPaid ? 'paid' : 'pending';
         $paidAt = $autoMarkPaid ? now() : null;
         $last4 = $isCash ? 'CASH' : ($validated['last4'] ?? '4242');
+
+        // 1. If paid immediately (card or auto-approved cash), update household tier
+        if ($autoMarkPaid) {
+            $tenant->subscription_tier = $tier;
+            $tenant->status = 'active';
+            $tenant->save();
+        }
 
         // 2. Automatically generate and record the invoice
         $invoice = Invoice::create([
@@ -263,11 +265,17 @@ class InvoiceController extends Controller
             'invoice_number' => $invoice->invoice_number,
             'amount_cents' => $amountCents,
             'tier' => $tier,
+            'payment_method' => $paymentMethod,
+            'status' => $status,
         ], 'info');
 
+        $message = $autoMarkPaid
+            ? 'Subscription upgraded and invoice generated successfully.'
+            : 'Cash payment request submitted. Awaiting in-person settlement and platform admin approval.';
+
         return response()->json([
-            'message' => 'Subscription upgraded and invoice generated successfully.',
-            'tenant' => $tenant,
+            'message' => $message,
+            'tenant' => $tenant->fresh(),
             'invoice' => $invoice,
         ], 201);
     }

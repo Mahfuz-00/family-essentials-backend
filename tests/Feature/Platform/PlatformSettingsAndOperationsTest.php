@@ -165,7 +165,7 @@ class PlatformSettingsAndOperationsTest extends TestCase
         $tenant = $this->createTenant('Cash Billing Household');
         $user = $this->createMember($tenant, 'tenant_admin');
 
-        // 1. Enable cash payment via platform settings
+        // 1. Enable cash payment with in-person approval required (auto_mark_paid = false)
         $this->withToken($this->tokenFor($platform))
             ->postJson('/api/v1/platform/settings/payment', [
                 'active_gateway' => 'stripe',
@@ -175,7 +175,7 @@ class PlatformSettingsAndOperationsTest extends TestCase
                     'cash' => [
                         'enabled' => true,
                         'instructions' => 'Settlement in person at reception.',
-                        'auto_mark_paid' => true,
+                        'auto_mark_paid' => false,
                     ],
                 ],
                 'auto_billing_enabled' => true,
@@ -189,7 +189,7 @@ class PlatformSettingsAndOperationsTest extends TestCase
             ->assertJsonPath('data.cash.enabled', true)
             ->assertJsonPath('data.cash.instructions', 'Settlement in person at reception.');
 
-        // 3. Tenant upgrades with cash payment
+        // 3. Tenant submits upgrade with cash payment (enters pending state)
         $upgradeRes = $this->withToken($this->tokenFor($user))
             ->postJson('/api/v1/billing/upgrade', [
                 'tier' => 'family',
@@ -199,16 +199,43 @@ class PlatformSettingsAndOperationsTest extends TestCase
             ->assertCreated()
             ->assertJsonPath('invoice.payment_method', 'cash')
             ->assertJsonPath('invoice.last4', 'CASH')
-            ->assertJsonPath('invoice.status', 'paid');
+            ->assertJsonPath('invoice.status', 'pending');
 
         $cashInvoiceId = $upgradeRes->json('invoice.id');
 
-        // Cash invoices cannot be downloaded because physical invoice is issued in person
+        // Household is not yet upgraded until admin approval
+        $freshTenant = $this->withBypass(fn () => $tenant->fresh());
+        $this->assertSame('pilot', $freshTenant->subscription_tier);
+
+        // 4. Platform admin receives notification of pending cash settlement
+        $this->withToken($this->tokenFor($platform))
+            ->getJson('/api/v1/platform/notifications')
+            ->assertOk()
+            ->assertJsonPath('pending_cash_count', 1)
+            ->assertJsonPath('cash_settlements.0.id', $cashInvoiceId)
+            ->assertJsonPath('cash_settlements.0.tenant.name', 'Cash Billing Household');
+
+        // 5. Platform admin checks pending queue and approves cash payment
+        $this->withToken($this->tokenFor($platform))
+            ->getJson('/api/v1/platform/billing/pending-cash')
+            ->assertOk()
+            ->assertJsonPath('count', 1);
+
+        $this->withToken($this->tokenFor($platform))
+            ->postJson('/api/v1/platform/billing/invoices/'.$cashInvoiceId.'/approve-cash')
+            ->assertOk()
+            ->assertJsonPath('invoice.status', 'paid');
+
+        // Household tier is now upgraded to family upon admin cash approval
+        $approvedTenant = $this->withBypass(fn () => $tenant->fresh());
+        $this->assertSame('family', $approvedTenant->subscription_tier);
+
+        // Cash invoices cannot be digitally downloaded because physical paper invoice is issued in person
         $this->withToken($this->tokenFor($user))
             ->get('/api/v1/billing/invoices/'.$cashInvoiceId.'/download')
             ->assertStatus(400);
 
-        // 4. Platform admin disables cash payment
+        // 6. Platform admin disables cash payment
         $this->withToken($this->tokenFor($platform))
             ->postJson('/api/v1/platform/settings/payment', [
                 'active_gateway' => 'stripe',
