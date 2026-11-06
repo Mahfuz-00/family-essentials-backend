@@ -190,7 +190,7 @@ class PlatformSettingsAndOperationsTest extends TestCase
             ->assertJsonPath('data.cash.instructions', 'Settlement in person at reception.');
 
         // 3. Tenant upgrades with cash payment
-        $this->withToken($this->tokenFor($user))
+        $upgradeRes = $this->withToken($this->tokenFor($user))
             ->postJson('/api/v1/billing/upgrade', [
                 'tier' => 'family',
                 'billing_period' => 'monthly',
@@ -200,6 +200,13 @@ class PlatformSettingsAndOperationsTest extends TestCase
             ->assertJsonPath('invoice.payment_method', 'cash')
             ->assertJsonPath('invoice.last4', 'CASH')
             ->assertJsonPath('invoice.status', 'paid');
+
+        $cashInvoiceId = $upgradeRes->json('invoice.id');
+
+        // Cash invoices cannot be downloaded because physical invoice is issued in person
+        $this->withToken($this->tokenFor($user))
+            ->get('/api/v1/billing/invoices/'.$cashInvoiceId.'/download')
+            ->assertStatus(400);
 
         // 4. Platform admin disables cash payment
         $this->withToken($this->tokenFor($platform))
