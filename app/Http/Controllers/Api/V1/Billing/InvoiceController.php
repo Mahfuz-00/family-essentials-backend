@@ -45,6 +45,7 @@ class InvoiceController extends Controller
 
     public function downloadHtml(Request $request, Invoice $invoice): Response
     {
+        $invoice->loadMissing('tenant');
         $tenantId = app(TenantContext::class)->id();
 
         if ($tenantId && $invoice->tenant_id !== $tenantId && ! $request->user()?->is_platform_admin) {
@@ -99,7 +100,7 @@ class InvoiceController extends Controller
     <div class="details">
         <div>
             <strong>Billed To:</strong><br>
-            '.$invoice->tenant->name.'<br>
+            '.htmlspecialchars($invoice->tenant?->name ?? ('Household #'.$invoice->tenant_id)).'<br>
             Household Workspace ID #'.$invoice->tenant_id.'
         </div>
         <div style="text-align: right;">
