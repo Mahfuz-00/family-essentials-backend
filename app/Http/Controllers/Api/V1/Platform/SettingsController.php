@@ -72,29 +72,76 @@ class SettingsController extends Controller
         $defaultGateways = [
             'stripe' => [
                 'enabled' => true,
+                'sandbox' => true,
                 'publishable_key' => 'pk_test_fairshare_sandbox_mock51928374',
                 'secret_key' => 'sk_test_••••••••••••••••••••••••••••••••',
                 'webhook_secret' => 'whsec_••••••••••••••••••••••••••••',
             ],
+            'paypal' => [
+                'enabled' => false,
+                'sandbox' => true,
+                'client_id' => 'sb-fairshare-mock-id',
+                'client_secret' => '••••••••••••••••',
+                'webhook_id' => 'WH-••••••••••••••••',
+            ],
             'razorpay' => [
                 'enabled' => false,
+                'sandbox' => true,
                 'key_id' => 'rzp_test_fairshare',
                 'key_secret' => '••••••••••••••••',
+                'webhook_secret' => '••••••••••••••••',
             ],
             'sslcommerz' => [
                 'enabled' => false,
+                'sandbox' => true,
                 'store_id' => 'fairshare_sandbox',
                 'store_passwd' => '••••••••••••••••',
             ],
-            'paypal' => [
+            'bkash' => [
                 'enabled' => false,
-                'client_id' => 'sb-fairshare-mock-id',
-                'client_secret' => '••••••••••••••••',
+                'sandbox' => true,
+                'app_key' => 'bkash_sandbox_app_key',
+                'app_secret' => '••••••••••••••••',
+                'username' => 'sandbox_user',
+                'password' => '••••••••••••••••',
+            ],
+            'nagad' => [
+                'enabled' => false,
+                'sandbox' => true,
+                'merchant_id' => 'NAGAD_SANDBOX_01',
+                'public_key' => '••••••••••••••••',
+                'private_key' => '••••••••••••••••',
+            ],
+            'paystack' => [
+                'enabled' => false,
+                'sandbox' => true,
+                'public_key' => 'pk_test_••••••••••••••••',
+                'secret_key' => 'sk_test_••••••••••••••••',
+            ],
+            'mollie' => [
+                'enabled' => false,
+                'sandbox' => true,
+                'api_key' => 'test_••••••••••••••••',
+            ],
+            'bank_transfer' => [
+                'enabled' => false,
+                'bank_name' => 'City Bank / Chase',
+                'account_name' => 'FairShare Operations Inc.',
+                'account_number' => '••••••••1234',
+                'routing_code' => '021000021',
+                'swift_bic' => 'CHASUS33',
+                'instructions' => 'Please reference your Invoice Number in the wire transfer description.',
             ],
             'cash' => [
                 'enabled' => true,
                 'instructions' => 'Cash payment upon in-person settlement or physical invoice collection.',
                 'auto_mark_paid' => false,
+            ],
+            'mock' => [
+                'enabled' => true,
+                'sandbox' => true,
+                'simulate_failure' => false,
+                'latency_ms' => 120,
             ],
         ];
 
@@ -107,9 +154,14 @@ class SettingsController extends Controller
             'auto_billing_enabled' => true,
         ]);
 
-        if (! isset($settings['gateways']['cash'])) {
-            $settings['gateways']['cash'] = $defaultGateways['cash'];
+        // Merge any newly introduced gateways into existing database configuration
+        $existingGateways = $settings['gateways'] ?? [];
+        foreach ($defaultGateways as $key => $defaultConfig) {
+            if (! isset($existingGateways[$key])) {
+                $existingGateways[$key] = $defaultConfig;
+            }
         }
+        $settings['gateways'] = $existingGateways;
 
         return response()->json(['data' => $settings]);
     }
@@ -117,7 +169,7 @@ class SettingsController extends Controller
     public function updatePaymentGateway(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'active_gateway' => ['required', 'string', 'in:stripe,razorpay,sslcommerz,paypal,mock,cash'],
+            'active_gateway' => ['required', 'string', 'in:stripe,paypal,razorpay,sslcommerz,bkash,nagad,paystack,mollie,bank_transfer,mock,cash'],
             'mode' => ['required', 'string', 'in:sandbox,live'],
             'currency' => ['required', 'string', 'size:3'],
             'gateways' => ['required', 'array'],
@@ -144,28 +196,64 @@ class SettingsController extends Controller
     public function testPaymentGateway(Request $request): JsonResponse
     {
         $gateway = $request->input('gateway', 'stripe');
+        $mode = $request->input('mode', 'sandbox');
 
         if ($gateway === 'cash') {
             return response()->json([
                 'status' => 'connected',
                 'gateway' => 'cash',
+                'mode' => $mode,
                 'latency_ms' => 0,
                 'message' => 'Cash payment and offline collection workflow is active and ready.',
                 'timestamp' => now()->toIso8601String(),
             ]);
         }
 
-        $start = microtime(true);
+        if ($gateway === 'mock') {
+            return response()->json([
+                'status' => 'connected',
+                'gateway' => 'mock',
+                'mode' => 'sandbox',
+                'latency_ms' => 15,
+                'message' => 'Internal Sandbox Payment Simulator is active. Test card 4242-4242-4242-4242 ready.',
+                'timestamp' => now()->toIso8601String(),
+            ]);
+        }
 
-        // Ping simulation / connection check
-        usleep(150000); // 150ms simulated ping
+        if ($gateway === 'bank_transfer') {
+            return response()->json([
+                'status' => 'connected',
+                'gateway' => 'bank_transfer',
+                'mode' => $mode,
+                'latency_ms' => 0,
+                'message' => 'Bank Wire / Direct Transfer details configured for offline invoice settlement.',
+                'timestamp' => now()->toIso8601String(),
+            ]);
+        }
+
+        $start = microtime(true);
+        usleep(120000); // 120ms simulated API ping
         $latencyMs = round((microtime(true) - $start) * 1000);
+
+        $gatewayLabels = [
+            'stripe' => 'Stripe Payments API',
+            'paypal' => 'PayPal Commerce REST API',
+            'razorpay' => 'Razorpay Payments API',
+            'sslcommerz' => 'SSLCommerz Payment Session',
+            'bkash' => 'bKash PGW Merchant API',
+            'nagad' => 'Nagad Digital Merchant API',
+            'paystack' => 'Paystack Africa Gateway',
+            'mollie' => 'Mollie Payments Europe',
+        ];
+
+        $label = $gatewayLabels[$gateway] ?? ucfirst($gateway);
 
         return response()->json([
             'status' => 'connected',
             'gateway' => $gateway,
+            'mode' => $mode,
             'latency_ms' => $latencyMs,
-            'message' => "Successfully connected to {$gateway} API endpoint in {$latencyMs}ms.",
+            'message' => "Successfully connected to {$label} [{$mode} environment] in {$latencyMs}ms.",
             'timestamp' => now()->toIso8601String(),
         ]);
     }

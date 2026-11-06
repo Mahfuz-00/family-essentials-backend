@@ -192,17 +192,26 @@ class InvoiceController extends Controller
         $cashSettings = $gateways['cash'] ?? [
             'enabled' => true,
             'instructions' => 'Cash payment upon in-person settlement or physical invoice collection.',
-            'auto_mark_paid' => true,
+            'auto_mark_paid' => false,
         ];
+        $bankSettings = $gateways['bank_transfer'] ?? ['enabled' => false];
 
         return response()->json([
             'data' => [
                 'active_gateway' => $activeGateway,
+                'mode' => $settings['mode'] ?? 'sandbox',
+                'is_sandbox' => ($settings['mode'] ?? 'sandbox') === 'sandbox',
                 'currency' => $settings['currency'] ?? 'USD',
                 'cash' => [
                     'enabled' => (bool) ($cashSettings['enabled'] ?? true),
                     'instructions' => $cashSettings['instructions'] ?? 'Cash payment upon in-person settlement or physical invoice collection.',
-                    'auto_mark_paid' => (bool) ($cashSettings['auto_mark_paid'] ?? true),
+                    'auto_mark_paid' => (bool) ($cashSettings['auto_mark_paid'] ?? false),
+                ],
+                'bank_transfer' => [
+                    'enabled' => (bool) ($bankSettings['enabled'] ?? false),
+                    'instructions' => $bankSettings['instructions'] ?? 'Please reference your invoice number when sending wire transfers.',
+                    'bank_name' => $bankSettings['bank_name'] ?? '',
+                    'account_number' => $bankSettings['account_number'] ?? '',
                 ],
             ],
         ]);
@@ -323,7 +332,7 @@ class InvoiceController extends Controller
         $validated = $request->validate([
             'tier' => ['required', 'string', 'in:starter,plus,family,family_plus,enterprise'],
             'billing_period' => ['nullable', 'string', 'in:monthly,annual,yearly'],
-            'payment_method' => ['nullable', 'string', 'in:credit_card,cash,card,mock'],
+            'payment_method' => ['nullable', 'string', 'in:credit_card,cash,card,mock,stripe,paypal,razorpay,sslcommerz,bkash,nagad,paystack,mollie,bank_transfer'],
             'last4' => ['nullable', 'string'],
         ]);
 
