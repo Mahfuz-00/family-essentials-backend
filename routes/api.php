@@ -203,6 +203,7 @@ Route::prefix('v1')->group(function () {
     Route::middleware(['auth:sanctum', 'abilities:dashboard', 'tenant'])->group(function () {
         Route::get('tenant', [CurrentTenantController::class, 'show']);
         Route::patch('tenant', [CurrentTenantController::class, 'update']);
+        Route::get('tenant/export', [CurrentTenantController::class, 'export']);
 
         Route::get('tenant/members', [TenantMemberController::class, 'index']);
         Route::patch('tenant/members/{user}', [TenantMemberController::class, 'update']);
@@ -242,6 +243,7 @@ Route::prefix('v1')->group(function () {
         Route::post('requests/{serviceRequest}/cancel', [RequestActionController::class, 'cancel']);
         Route::post('requests/{serviceRequest}/unavailable', [RequestActionController::class, 'unavailable']);
         Route::post('requests/{serviceRequest}/snooze', [RequestActionController::class, 'snooze']);
+        Route::post('requests/{serviceRequest}/thank', [RequestActionController::class, 'thank']);
 
         // ---- Reminders & notifications ---------------------------------
         Route::post('device-tokens', [DeviceTokenController::class, 'store']);
@@ -264,6 +266,7 @@ Route::prefix('v1')->group(function () {
         Route::patch('essentials/{essential}', [EssentialController::class, 'update']);
         Route::delete('essentials/{essential}', [EssentialController::class, 'destroy']);
         Route::post('essentials/{essential}/restock', [EssentialController::class, 'restock']);
+        Route::post('essentials/{essential}/create-errand', [EssentialController::class, 'createErrand']);
 
         // ---- Voice escalation -------------------------------------------
         Route::get('voice-calls/quota', [VoiceCallController::class, 'quota']);

@@ -118,6 +118,7 @@ Route::prefix('v1')->group(function () {
         Route::post('requests/{serviceRequest}/cancel', [RequestActionController::class, 'cancel']);
         Route::post('requests/{serviceRequest}/unavailable', [RequestActionController::class, 'unavailable']);
         Route::post('requests/{serviceRequest}/snooze', [RequestActionController::class, 'snooze']);
+        Route::post('requests/{serviceRequest}/thank', [RequestActionController::class, 'thank']);
 
         // ---- Reminders & notifications ---------------------------------
         Route::post('device-tokens', [DeviceTokenController::class, 'store']);
@@ -140,6 +141,7 @@ Route::prefix('v1')->group(function () {
         Route::patch('essentials/{essential}', [EssentialController::class, 'update']);
         Route::delete('essentials/{essential}', [EssentialController::class, 'destroy']);
         Route::post('essentials/{essential}/restock', [EssentialController::class, 'restock']);
+        Route::post('essentials/{essential}/create-errand', [EssentialController::class, 'createErrand']);
 
         // ---- Voice escalation -------------------------------------------
         Route::get('voice-calls/quota', [VoiceCallController::class, 'quota']);

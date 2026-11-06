@@ -83,6 +83,23 @@ class RequestActionController extends Controller
         return $this->respond($workflow->snooze($serviceRequest, Carbon::parse($request->input('until'))));
     }
 
+    public function thank(Request $request, ServiceRequest $serviceRequest): JsonResponse
+    {
+        $sender = $request->user();
+        $targetUser = $serviceRequest->assignee ?? $serviceRequest->requester;
+
+        $noteAddition = "\n[🙌 {$sender->name} sent appreciation at ".now()->format('H:i')."]";
+        $serviceRequest->update([
+            'notes' => trim(($serviceRequest->notes ?? '').$noteAddition),
+        ]);
+
+        return response()->json([
+            'message' => 'Appreciation sent to '.($targetUser?->name ?? 'family member').'! 🙌',
+            'sender' => $sender->name,
+            'request_id' => $serviceRequest->id,
+        ]);
+    }
+
     private function respond(ServiceRequest $model): JsonResponse
     {
         return (new ServiceRequestResource(

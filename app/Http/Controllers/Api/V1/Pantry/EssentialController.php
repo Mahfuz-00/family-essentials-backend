@@ -7,7 +7,9 @@ use App\Http\Requests\Essentials\RestockEssentialRequest;
 use App\Http\Requests\Essentials\StoreEssentialRequest;
 use App\Http\Requests\Essentials\UpdateEssentialRequest;
 use App\Http\Resources\EssentialResource;
+use App\Http\Resources\ServiceRequestResource;
 use App\Models\Essential;
+use App\Requests\RequestWorkflow;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -98,5 +100,22 @@ class EssentialController extends Controller
         ]);
 
         return (new EssentialResource($essential))->response();
+    }
+
+    public function createErrand(Request $request, Essential $essential, RequestWorkflow $workflow): JsonResponse
+    {
+        $serviceRequest = $workflow->create($request->user(), [
+            'title' => 'Restock '.$essential->name,
+            'quantity' => $essential->pack_size ?? '1 pack',
+            'store_name' => $essential->default_store,
+            'category' => $essential->category ?? 'Pantry',
+            'priority' => ((int) $essential->stock_level <= 0) ? 'high' : 'normal',
+            'notes' => 'Triggered from pantry catalog (Current stock: '.$essential->stock_level.', threshold: '.$essential->threshold.')',
+        ]);
+
+        return response()->json([
+            'message' => 'Restock errand added to household board!',
+            'data' => (new ServiceRequestResource($serviceRequest))->resolve(),
+        ], 201);
     }
 }
