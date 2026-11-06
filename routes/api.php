@@ -27,6 +27,7 @@ use App\Http\Controllers\Api\V1\Requests\NlpDispatcherController;
 use App\Http\Controllers\Api\V1\Platform\AnalyticsController as PlatformAnalyticsController;
 use App\Http\Controllers\Api\V1\Platform\AuditLogController as PlatformAuditLogController;
 use App\Http\Controllers\Api\V1\Platform\BackupController as PlatformBackupController;
+use App\Http\Controllers\Api\V1\Platform\BillingController as PlatformBillingController;
 use App\Http\Controllers\Api\V1\Platform\FeedbackController as PlatformFeedbackController;
 use App\Http\Controllers\Api\V1\Platform\HealthController as PlatformHealthController;
 use App\Http\Controllers\Api\V1\Platform\IncidentController as PlatformIncidentController;
@@ -147,8 +148,17 @@ Route::prefix('v1')->group(function () {
             Route::get('refunds', [PlatformRefundController::class, 'index']);
             Route::post('refunds', [PlatformRefundController::class, 'store']);
             Route::post('refunds/policy', [PlatformRefundController::class, 'updatePolicy']);
+            Route::post('refunds/eligibility', [PlatformRefundController::class, 'checkEligibility']);
             Route::post('refunds/{id}/approve', [PlatformRefundController::class, 'approve']);
             Route::post('refunds/{id}/reject', [PlatformRefundController::class, 'reject']);
+
+            // ---- Billing, Invoices & Cash Settlement Queue ------------------
+            Route::get('billing/invoices', [PlatformBillingController::class, 'index']);
+            Route::get('billing/invoices/{invoice}/download', [PlatformBillingController::class, 'downloadInvoice']);
+            Route::get('billing/pending-cash', [PlatformBillingController::class, 'pendingCash']);
+            Route::post('billing/invoices/{invoice}/approve-cash', [PlatformBillingController::class, 'approveCash']);
+            Route::post('billing/invoices/{invoice}/reject-cash', [PlatformBillingController::class, 'rejectCash']);
+            Route::get('notifications', [PlatformBillingController::class, 'notifications']);
 
             // ---- Marketing & Growth Console ---------------------------------
             Route::get('marketing/overview', [PlatformMarketingController::class, 'overview']);
@@ -300,10 +310,12 @@ Route::prefix('v1')->group(function () {
         Route::post('ledger/receipts/scan', [ReceiptScanController::class, 'scan']);
 
         // ---- Customer Self-Service Billing & Invoicing (Gap F) -----------
+        Route::get('billing/payment-methods', [InvoiceController::class, 'paymentMethods']);
         Route::get('billing/invoices', [InvoiceController::class, 'index']);
         Route::get('billing/invoices/{invoice}', [InvoiceController::class, 'show']);
         Route::get('billing/invoices/{invoice}/download', [InvoiceController::class, 'downloadHtml']);
         Route::post('billing/portal', [InvoiceController::class, 'createPortalSession']);
+        Route::post('billing/change-plan-preview', [InvoiceController::class, 'changePlanPreview']);
         Route::post('billing/upgrade', [InvoiceController::class, 'simulateUpgrade']);
 
         // ---- External Calendar Sync (Gap A) ----------------------------
