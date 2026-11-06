@@ -196,7 +196,12 @@ class SettingsController extends Controller
     public function testPaymentGateway(Request $request): JsonResponse
     {
         $gateway = $request->input('gateway', 'stripe');
-        $mode = $request->input('mode', 'sandbox');
+        $settings = PlatformSetting::get('payment_gateway', []);
+        $gatewayConfig = $settings['gateways'][$gateway] ?? [];
+        $isSandbox = $request->has('mode')
+            ? ($request->input('mode') === 'sandbox')
+            : (bool) ($gatewayConfig['sandbox'] ?? true);
+        $mode = $isSandbox ? 'sandbox' : 'live';
 
         if ($gateway === 'cash') {
             return response()->json([

@@ -189,6 +189,8 @@ class InvoiceController extends Controller
         $settings = \App\Models\PlatformSetting::get('payment_gateway', []);
         $activeGateway = $settings['active_gateway'] ?? 'stripe';
         $gateways = $settings['gateways'] ?? [];
+        $activeConfig = $gateways[$activeGateway] ?? [];
+        $isGatewaySandbox = (bool) ($activeConfig['sandbox'] ?? (($settings['mode'] ?? 'sandbox') === 'sandbox'));
         $cashSettings = $gateways['cash'] ?? [
             'enabled' => true,
             'instructions' => 'Cash payment upon in-person settlement or physical invoice collection.',
@@ -199,9 +201,16 @@ class InvoiceController extends Controller
         return response()->json([
             'data' => [
                 'active_gateway' => $activeGateway,
-                'mode' => $settings['mode'] ?? 'sandbox',
-                'is_sandbox' => ($settings['mode'] ?? 'sandbox') === 'sandbox',
+                'mode' => $isGatewaySandbox ? 'sandbox' : 'live',
+                'is_sandbox' => $isGatewaySandbox,
                 'currency' => $settings['currency'] ?? 'USD',
+                'gateways' => collect($gateways)->map(function ($gw) {
+                    return [
+                        'enabled' => (bool) ($gw['enabled'] ?? false),
+                        'sandbox' => (bool) ($gw['sandbox'] ?? true),
+                        'mode' => ($gw['sandbox'] ?? true) ? 'sandbox' : 'live',
+                    ];
+                })->all(),
                 'cash' => [
                     'enabled' => (bool) ($cashSettings['enabled'] ?? true),
                     'instructions' => $cashSettings['instructions'] ?? 'Cash payment upon in-person settlement or physical invoice collection.',
