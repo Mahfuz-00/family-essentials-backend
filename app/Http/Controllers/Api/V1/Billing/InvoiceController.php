@@ -153,6 +153,30 @@ class InvoiceController extends Controller
         ]);
     }
 
+    public function paymentMethods(): JsonResponse
+    {
+        $settings = \App\Models\PlatformSetting::get('payment_gateway', []);
+        $activeGateway = $settings['active_gateway'] ?? 'stripe';
+        $gateways = $settings['gateways'] ?? [];
+        $cashSettings = $gateways['cash'] ?? [
+            'enabled' => true,
+            'instructions' => 'Cash payment upon in-person settlement or physical invoice collection.',
+            'auto_mark_paid' => true,
+        ];
+
+        return response()->json([
+            'data' => [
+                'active_gateway' => $activeGateway,
+                'currency' => $settings['currency'] ?? 'USD',
+                'cash' => [
+                    'enabled' => (bool) ($cashSettings['enabled'] ?? true),
+                    'instructions' => $cashSettings['instructions'] ?? 'Cash payment upon in-person settlement or physical invoice collection.',
+                    'auto_mark_paid' => (bool) ($cashSettings['auto_mark_paid'] ?? true),
+                ],
+            ],
+        ]);
+    }
+
     /**
      * Simulation of plan upgrade/payment: generates an official invoice upon completion
      */
@@ -161,13 +185,27 @@ class InvoiceController extends Controller
         $validated = $request->validate([
             'tier' => ['required', 'string', 'in:starter,plus,family,family_plus,enterprise'],
             'billing_period' => ['nullable', 'string', 'in:monthly,annual,yearly'],
-            'payment_method' => ['nullable', 'string'],
+            'payment_method' => ['nullable', 'string', 'in:credit_card,cash,card,mock'],
             'last4' => ['nullable', 'string'],
         ]);
 
         $tenant = $this->currentTenant();
         $tier = $validated['tier'];
         $period = in_array($validated['billing_period'] ?? 'monthly', ['annual', 'yearly']) ? 'annual' : 'monthly';
+
+        $paymentMethod = $validated['payment_method'] ?? 'credit_card';
+        if ($paymentMethod === 'card') {
+            $paymentMethod = 'credit_card';
+        }
+
+        $platformSettings = \App\Models\PlatformSetting::get('payment_gateway', []);
+        $cashSettings = $platformSettings['gateways']['cash'] ?? ['enabled' => true, 'auto_mark_paid' => true];
+
+        if ($paymentMethod === 'cash' && empty($cashSettings['enabled'])) {
+            return response()->json([
+                'message' => 'Cash payment is currently disabled by platform administration.',
+            ], 422);
+        }
 
         $prices = [
             'starter' => 0,
@@ -187,23 +225,29 @@ class InvoiceController extends Controller
         $tenant->status = 'active';
         $tenant->save();
 
+        $isCash = $paymentMethod === 'cash';
+        $autoMarkPaid = $isCash ? ($cashSettings['auto_mark_paid'] ?? true) : true;
+        $status = $autoMarkPaid ? 'paid' : 'pending';
+        $paidAt = $autoMarkPaid ? now() : null;
+        $last4 = $isCash ? 'CASH' : ($validated['last4'] ?? '4242');
+
         // 2. Automatically generate and record the invoice
         $invoice = Invoice::create([
             'tenant_id' => $tenant->id,
             'invoice_number' => Invoice::generateNumber(),
             'amount_cents' => $amountCents,
-            'currency' => 'USD',
-            'status' => 'paid',
+            'currency' => $platformSettings['currency'] ?? 'USD',
+            'status' => $status,
             'tier' => $tier,
             'billing_period' => $period,
             'period_start' => now(),
             'period_end' => $period === 'annual' ? now()->addYear() : now()->addMonth(),
-            'paid_at' => now(),
-            'payment_method' => 'credit_card',
-            'last4' => '4242',
+            'paid_at' => $paidAt,
+            'payment_method' => $paymentMethod,
+            'last4' => $last4,
             'line_items' => [
                 [
-                    'description' => "FairShare ".ucfirst($tier)." Plan ({$period})",
+                    'description' => "FairShare ".ucfirst($tier)." Plan ({$period})".($isCash ? ' — Cash In-Person' : ''),
                     'quantity' => 1,
                     'amount_cents' => $amountCents,
                 ],

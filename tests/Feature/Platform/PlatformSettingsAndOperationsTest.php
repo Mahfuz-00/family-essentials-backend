@@ -19,26 +19,33 @@ class PlatformSettingsAndOperationsTest extends TestCase
             ->getJson('/api/v1/platform/settings/payment')
             ->assertOk()
             ->assertJsonPath('data.active_gateway', 'stripe')
-            ->assertJsonPath('data.mode', 'sandbox');
+            ->assertJsonPath('data.mode', 'sandbox')
+            ->assertJsonPath('data.gateways.cash.enabled', true);
 
         $this->withToken($this->tokenFor($platform))
             ->postJson('/api/v1/platform/settings/payment', [
-                'active_gateway' => 'razorpay',
+                'active_gateway' => 'cash',
                 'mode' => 'live',
                 'currency' => 'EUR',
                 'gateways' => [
-                    'razorpay' => ['enabled' => true, 'key_id' => 'rzp_live_123', 'key_secret' => 'sec_456'],
+                    'cash' => [
+                        'enabled' => true,
+                        'instructions' => 'Hand cash directly to representative.',
+                        'auto_mark_paid' => true,
+                    ],
                 ],
                 'auto_billing_enabled' => true,
             ])
             ->assertOk()
-            ->assertJsonPath('data.active_gateway', 'razorpay')
-            ->assertJsonPath('data.currency', 'EUR');
+            ->assertJsonPath('data.active_gateway', 'cash')
+            ->assertJsonPath('data.currency', 'EUR')
+            ->assertJsonPath('data.gateways.cash.instructions', 'Hand cash directly to representative.');
 
         $this->withToken($this->tokenFor($platform))
-            ->postJson('/api/v1/platform/settings/payment/test', ['gateway' => 'razorpay'])
+            ->postJson('/api/v1/platform/settings/payment/test', ['gateway' => 'cash'])
             ->assertOk()
-            ->assertJsonPath('status', 'connected');
+            ->assertJsonPath('status', 'connected')
+            ->assertJsonPath('gateway', 'cash');
     }
 
     public function test_platform_admin_can_read_and_update_email_configuration(): void
@@ -150,5 +157,81 @@ class PlatformSettingsAndOperationsTest extends TestCase
             ->postJson('/api/v1/platform/health/cache/clear')
             ->assertOk()
             ->assertJsonPath('success', true);
+    }
+
+    public function test_tenant_can_view_payment_methods_and_upgrade_with_cash_and_rejects_when_cash_disabled(): void
+    {
+        $platform = $this->createPlatformAdmin();
+        $tenant = $this->createTenant('Cash Billing Household');
+        $user = $this->createMember($tenant, 'tenant_admin');
+
+        // 1. Enable cash payment via platform settings
+        $this->withToken($this->tokenFor($platform))
+            ->postJson('/api/v1/platform/settings/payment', [
+                'active_gateway' => 'stripe',
+                'mode' => 'sandbox',
+                'currency' => 'USD',
+                'gateways' => [
+                    'cash' => [
+                        'enabled' => true,
+                        'instructions' => 'Settlement in person at reception.',
+                        'auto_mark_paid' => true,
+                    ],
+                ],
+                'auto_billing_enabled' => true,
+            ])
+            ->assertOk();
+
+        // 2. Tenant reads payment methods
+        $this->withToken($this->tokenFor($user))
+            ->getJson('/api/v1/billing/payment-methods')
+            ->assertOk()
+            ->assertJsonPath('data.cash.enabled', true)
+            ->assertJsonPath('data.cash.instructions', 'Settlement in person at reception.');
+
+        // 3. Tenant upgrades with cash payment
+        $this->withToken($this->tokenFor($user))
+            ->postJson('/api/v1/billing/upgrade', [
+                'tier' => 'family',
+                'billing_period' => 'monthly',
+                'payment_method' => 'cash',
+            ])
+            ->assertCreated()
+            ->assertJsonPath('invoice.payment_method', 'cash')
+            ->assertJsonPath('invoice.last4', 'CASH')
+            ->assertJsonPath('invoice.status', 'paid');
+
+        // 4. Platform admin disables cash payment
+        $this->withToken($this->tokenFor($platform))
+            ->postJson('/api/v1/platform/settings/payment', [
+                'active_gateway' => 'stripe',
+                'mode' => 'sandbox',
+                'currency' => 'USD',
+                'gateways' => [
+                    'cash' => [
+                        'enabled' => false,
+                        'instructions' => 'Disabled',
+                        'auto_mark_paid' => false,
+                    ],
+                ],
+                'auto_billing_enabled' => true,
+            ])
+            ->assertOk();
+
+        // 5. Tenant reads payment methods and cash is disabled
+        $this->withToken($this->tokenFor($user))
+            ->getJson('/api/v1/billing/payment-methods')
+            ->assertOk()
+            ->assertJsonPath('data.cash.enabled', false);
+
+        // 6. Tenant attempt to upgrade with cash is rejected
+        $this->withToken($this->tokenFor($user))
+            ->postJson('/api/v1/billing/upgrade', [
+                'tier' => 'enterprise',
+                'billing_period' => 'annual',
+                'payment_method' => 'cash',
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Cash payment is currently disabled by platform administration.');
     }
 }

@@ -69,36 +69,47 @@ class SettingsController extends Controller
 
     public function getPaymentGateway(): JsonResponse
     {
+        $defaultGateways = [
+            'stripe' => [
+                'enabled' => true,
+                'publishable_key' => 'pk_test_fairshare_sandbox_mock51928374',
+                'secret_key' => 'sk_test_••••••••••••••••••••••••••••••••',
+                'webhook_secret' => 'whsec_••••••••••••••••••••••••••••',
+            ],
+            'razorpay' => [
+                'enabled' => false,
+                'key_id' => 'rzp_test_fairshare',
+                'key_secret' => '••••••••••••••••',
+            ],
+            'sslcommerz' => [
+                'enabled' => false,
+                'store_id' => 'fairshare_sandbox',
+                'store_passwd' => '••••••••••••••••',
+            ],
+            'paypal' => [
+                'enabled' => false,
+                'client_id' => 'sb-fairshare-mock-id',
+                'client_secret' => '••••••••••••••••',
+            ],
+            'cash' => [
+                'enabled' => true,
+                'instructions' => 'Cash payment upon in-person settlement or physical invoice collection.',
+                'auto_mark_paid' => true,
+            ],
+        ];
+
         $settings = PlatformSetting::get('payment_gateway', [
             'active_gateway' => 'stripe',
             'mode' => 'sandbox',
             'currency' => 'USD',
-            'gateways' => [
-                'stripe' => [
-                    'enabled' => true,
-                    'publishable_key' => 'pk_test_fairshare_sandbox_mock51928374',
-                    'secret_key' => 'sk_test_••••••••••••••••••••••••••••••••',
-                    'webhook_secret' => 'whsec_••••••••••••••••••••••••••••',
-                ],
-                'razorpay' => [
-                    'enabled' => false,
-                    'key_id' => 'rzp_test_fairshare',
-                    'key_secret' => '••••••••••••••••',
-                ],
-                'sslcommerz' => [
-                    'enabled' => false,
-                    'store_id' => 'fairshare_sandbox',
-                    'store_passwd' => '••••••••••••••••',
-                ],
-                'paypal' => [
-                    'enabled' => false,
-                    'client_id' => 'sb-fairshare-mock-id',
-                    'client_secret' => '••••••••••••••••',
-                ],
-            ],
+            'gateways' => $defaultGateways,
             'webhook_url' => '/api/v1/webhooks/payment',
             'auto_billing_enabled' => true,
         ]);
+
+        if (! isset($settings['gateways']['cash'])) {
+            $settings['gateways']['cash'] = $defaultGateways['cash'];
+        }
 
         return response()->json(['data' => $settings]);
     }
@@ -106,7 +117,7 @@ class SettingsController extends Controller
     public function updatePaymentGateway(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'active_gateway' => ['required', 'string', 'in:stripe,razorpay,sslcommerz,paypal,mock'],
+            'active_gateway' => ['required', 'string', 'in:stripe,razorpay,sslcommerz,paypal,mock,cash'],
             'mode' => ['required', 'string', 'in:sandbox,live'],
             'currency' => ['required', 'string', 'size:3'],
             'gateways' => ['required', 'array'],
@@ -133,6 +144,17 @@ class SettingsController extends Controller
     public function testPaymentGateway(Request $request): JsonResponse
     {
         $gateway = $request->input('gateway', 'stripe');
+
+        if ($gateway === 'cash') {
+            return response()->json([
+                'status' => 'connected',
+                'gateway' => 'cash',
+                'latency_ms' => 0,
+                'message' => 'Cash payment and offline collection workflow is active and ready.',
+                'timestamp' => now()->toIso8601String(),
+            ]);
+        }
+
         $start = microtime(true);
 
         // Ping simulation / connection check

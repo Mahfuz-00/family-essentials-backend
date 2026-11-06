@@ -300,6 +300,7 @@ Route::prefix('v1')->group(function () {
         Route::post('ledger/receipts/scan', [ReceiptScanController::class, 'scan']);
 
         // ---- Customer Self-Service Billing & Invoicing (Gap F) -----------
+        Route::get('billing/payment-methods', [InvoiceController::class, 'paymentMethods']);
         Route::get('billing/invoices', [InvoiceController::class, 'index']);
         Route::get('billing/invoices/{invoice}', [InvoiceController::class, 'show']);
         Route::get('billing/invoices/{invoice}/download', [InvoiceController::class, 'downloadHtml']);
