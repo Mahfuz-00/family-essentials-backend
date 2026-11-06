@@ -20,6 +20,10 @@ use App\Http\Controllers\Api\V1\Ledger\LedgerSummaryController;
 use App\Http\Controllers\Api\V1\Pantry\EssentialController;
 use App\Http\Controllers\Api\V1\Places\GeofenceController;
 use App\Http\Controllers\Api\V1\Places\PlaceController;
+use App\Http\Controllers\Api\V1\Billing\InvoiceController;
+use App\Http\Controllers\Api\V1\Calendar\CalendarFeedController;
+use App\Http\Controllers\Api\V1\Ledger\ReceiptScanController;
+use App\Http\Controllers\Api\V1\Requests\NlpDispatcherController;
 use App\Http\Controllers\Api\V1\Platform\AnalyticsController as PlatformAnalyticsController;
 use App\Http\Controllers\Api\V1\Platform\AuditLogController as PlatformAuditLogController;
 use App\Http\Controllers\Api\V1\Platform\BackupController as PlatformBackupController;
@@ -77,6 +81,8 @@ Route::prefix('v1')->group(function () {
 
         Route::middleware(['auth:sanctum', 'abilities:dashboard'])->group(function () {
             Route::get('me', [ProfileController::class, 'show']);
+            Route::patch('me', [ProfileController::class, 'update']);
+            Route::post('me/password', [ProfileController::class, 'updatePassword']);
             Route::post('logout', [AuthenticatedSessionController::class, 'destroy']);
 
             Route::patch('voice-consent', [VoiceConsentController::class, 'update']);
@@ -102,6 +108,9 @@ Route::prefix('v1')->group(function () {
     Route::post('marketing/subscribe', [MarketingPublicController::class, 'subscribe'])->middleware('throttle:10,1');
     Route::get('marketing/announcements/active', [MarketingPublicController::class, 'activeAnnouncements']);
 
+    // Public RFC 5545 iCalendar feed (Gap A)
+    Route::get('calendar/feed/{token}', [CalendarFeedController::class, 'feed']);
+
     // ---- Platform Admin (landlord) -------------------------------------
     Route::middleware(['auth:sanctum', 'abilities:dashboard', 'platform.admin'])
         ->prefix('platform')
@@ -122,7 +131,10 @@ Route::prefix('v1')->group(function () {
             Route::post('incidents', [PlatformIncidentController::class, 'store']);
             Route::patch('incidents/{incident}', [PlatformIncidentController::class, 'update']);
 
-            // ---- Platform Settings: Email & Payment Gateways ----------------
+            // ---- Platform Settings: System, Email & Payment Gateways -------
+            Route::get('settings/system', [PlatformSettingsController::class, 'getSystemSettings']);
+            Route::post('settings/system', [PlatformSettingsController::class, 'updateSystemSettings']);
+
             Route::get('settings/payment', [PlatformSettingsController::class, 'getPaymentGateway']);
             Route::post('settings/payment', [PlatformSettingsController::class, 'updatePaymentGateway']);
             Route::post('settings/payment/test', [PlatformSettingsController::class, 'testPaymentGateway']);
@@ -191,6 +203,7 @@ Route::prefix('v1')->group(function () {
     Route::middleware(['auth:sanctum', 'abilities:dashboard', 'tenant'])->group(function () {
         Route::get('tenant', [CurrentTenantController::class, 'show']);
         Route::patch('tenant', [CurrentTenantController::class, 'update']);
+        Route::get('tenant/export', [CurrentTenantController::class, 'export']);
 
         Route::get('tenant/members', [TenantMemberController::class, 'index']);
         Route::patch('tenant/members/{user}', [TenantMemberController::class, 'update']);
@@ -230,6 +243,7 @@ Route::prefix('v1')->group(function () {
         Route::post('requests/{serviceRequest}/cancel', [RequestActionController::class, 'cancel']);
         Route::post('requests/{serviceRequest}/unavailable', [RequestActionController::class, 'unavailable']);
         Route::post('requests/{serviceRequest}/snooze', [RequestActionController::class, 'snooze']);
+        Route::post('requests/{serviceRequest}/thank', [RequestActionController::class, 'thank']);
 
         // ---- Reminders & notifications ---------------------------------
         Route::post('device-tokens', [DeviceTokenController::class, 'store']);
@@ -252,6 +266,7 @@ Route::prefix('v1')->group(function () {
         Route::patch('essentials/{essential}', [EssentialController::class, 'update']);
         Route::delete('essentials/{essential}', [EssentialController::class, 'destroy']);
         Route::post('essentials/{essential}/restock', [EssentialController::class, 'restock']);
+        Route::post('essentials/{essential}/create-errand', [EssentialController::class, 'createErrand']);
 
         // ---- Voice escalation -------------------------------------------
         Route::get('voice-calls/quota', [VoiceCallController::class, 'quota']);
@@ -280,6 +295,22 @@ Route::prefix('v1')->group(function () {
         Route::get('ledgers/{ledger}/entries', [LedgerEntryController::class, 'index']);
         Route::post('ledgers/{ledger}/entries', [LedgerEntryController::class, 'store']);
         Route::delete('ledgers/{ledger}/entries/{entry}', [LedgerEntryController::class, 'destroy']);
+
+        // Optical Receipt Scanning & Expense Categorization (Gap B)
+        Route::post('ledger/receipts/scan', [ReceiptScanController::class, 'scan']);
+
+        // ---- Customer Self-Service Billing & Invoicing (Gap F) -----------
+        Route::get('billing/invoices', [InvoiceController::class, 'index']);
+        Route::get('billing/invoices/{invoice}', [InvoiceController::class, 'show']);
+        Route::get('billing/invoices/{invoice}/download', [InvoiceController::class, 'downloadHtml']);
+        Route::post('billing/portal', [InvoiceController::class, 'createPortalSession']);
+        Route::post('billing/upgrade', [InvoiceController::class, 'simulateUpgrade']);
+
+        // ---- External Calendar Sync (Gap A) ----------------------------
+        Route::get('calendar/feed-url', [CalendarFeedController::class, 'getFeedUrl']);
+
+        // ---- AI Family Dispatcher (Gap G) -------------------------------
+        Route::post('requests/parse-nlp', [NlpDispatcherController::class, 'parse']);
     });
 
     // ---- Provider webhooks (no tenant context; signature verified) ------

@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\V1\Ledger\LedgerController;
 use App\Http\Controllers\Api\V1\Ledger\LedgerEntryController;
 use App\Http\Controllers\Api\V1\Ledger\LedgerMemberController;
 use App\Http\Controllers\Api\V1\Ledger\LedgerSummaryController;
+use App\Http\Controllers\Api\V1\Ledger\ReceiptScanController;
 use App\Http\Controllers\Api\V1\Notifications\DeviceTokenController;
 use App\Http\Controllers\Api\V1\Notifications\LocationNotificationPreferenceController;
 use App\Http\Controllers\Api\V1\Notifications\NotificationLogController;
@@ -117,6 +118,7 @@ Route::prefix('v1')->group(function () {
         Route::post('requests/{serviceRequest}/cancel', [RequestActionController::class, 'cancel']);
         Route::post('requests/{serviceRequest}/unavailable', [RequestActionController::class, 'unavailable']);
         Route::post('requests/{serviceRequest}/snooze', [RequestActionController::class, 'snooze']);
+        Route::post('requests/{serviceRequest}/thank', [RequestActionController::class, 'thank']);
 
         // ---- Reminders & notifications ---------------------------------
         Route::post('device-tokens', [DeviceTokenController::class, 'store']);
@@ -139,6 +141,7 @@ Route::prefix('v1')->group(function () {
         Route::patch('essentials/{essential}', [EssentialController::class, 'update']);
         Route::delete('essentials/{essential}', [EssentialController::class, 'destroy']);
         Route::post('essentials/{essential}/restock', [EssentialController::class, 'restock']);
+        Route::post('essentials/{essential}/create-errand', [EssentialController::class, 'createErrand']);
 
         // ---- Voice escalation -------------------------------------------
         Route::get('voice-calls/quota', [VoiceCallController::class, 'quota']);
@@ -167,6 +170,7 @@ Route::prefix('v1')->group(function () {
         Route::get('ledgers/{ledger}/entries', [LedgerEntryController::class, 'index']);
         Route::post('ledgers/{ledger}/entries', [LedgerEntryController::class, 'store']);
         Route::delete('ledgers/{ledger}/entries/{entry}', [LedgerEntryController::class, 'destroy']);
+        Route::post('ledger/receipts/scan', [ReceiptScanController::class, 'scan']);
     });
 
     // ---- Provider webhooks (no tenant context; signature verified) ------
