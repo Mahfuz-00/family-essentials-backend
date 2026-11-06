@@ -130,6 +130,11 @@ class BillingController extends Controller
         ]);
     }
 
+    public function downloadInvoice(Request $request, Invoice $invoice)
+    {
+        return app(\App\Http\Controllers\Api\V1\Billing\InvoiceController::class)->downloadHtml($request, $invoice);
+    }
+
     public function notifications(Request $request): JsonResponse
     {
         $pendingCash = Invoice::query()

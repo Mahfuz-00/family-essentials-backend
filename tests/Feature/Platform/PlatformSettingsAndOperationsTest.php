@@ -230,10 +230,16 @@ class PlatformSettingsAndOperationsTest extends TestCase
         $approvedTenant = $this->withBypass(fn () => $tenant->fresh());
         $this->assertSame('family', $approvedTenant->subscription_tier);
 
-        // Cash invoices cannot be digitally downloaded because physical paper invoice is issued in person
+        // Cash invoices cannot be digitally downloaded by tenant because physical paper invoice is issued in person
         $this->withToken($this->tokenFor($user))
             ->get('/api/v1/billing/invoices/'.$cashInvoiceId.'/download')
             ->assertStatus(400);
+
+        // However, Platform Admin CAN download the physical handover copy
+        $adminDownloadRes = $this->withToken($this->tokenFor($platform))
+            ->get('/api/v1/platform/billing/invoices/'.$cashInvoiceId.'/download')
+            ->assertOk();
+        $this->assertStringContainsString('Physical In-Person Cash Settlement Handover Receipt', $adminDownloadRes->getContent());
 
         // 6. Platform admin disables cash payment
         $this->withToken($this->tokenFor($platform))
@@ -267,5 +273,226 @@ class PlatformSettingsAndOperationsTest extends TestCase
             ])
             ->assertStatus(422)
             ->assertJsonPath('message', 'Cash payment is currently disabled by platform administration.');
+    }
+
+    public function test_saas_refund_policy_rules_and_eligibility_engine(): void
+    {
+        $platform = $this->createPlatformAdmin();
+        $tenant = $this->createTenant('Refund Policy Household');
+
+        // 1. Create a monthly invoice issued 5 days ago (within 7-day window -> 100% refund)
+        $recentMonthlyInvoice = \App\Models\Invoice::create([
+            'tenant_id' => $tenant->id,
+            'invoice_number' => \App\Models\Invoice::generateNumber(),
+            'amount_cents' => 1900,
+            'currency' => 'USD',
+            'status' => 'paid',
+            'tier' => 'family',
+            'billing_period' => 'monthly',
+            'paid_at' => now()->subDays(5),
+            'payment_method' => 'credit_card',
+            'last4' => '4242',
+        ]);
+
+        $this->withToken($this->tokenFor($platform))
+            ->postJson('/api/v1/platform/refunds/eligibility', [
+                'invoice_id' => $recentMonthlyInvoice->id,
+            ])
+            ->assertOk()
+            ->assertJsonPath('eligible', true)
+            ->assertJsonPath('refund_percent', 100)
+            ->assertJsonPath('recommended_refund_cents', 1900);
+
+        // 2. Monthly invoice issued 10 days ago (past 7-day window -> ineligible)
+        $expiredMonthlyInvoice = \App\Models\Invoice::create([
+            'tenant_id' => $tenant->id,
+            'invoice_number' => \App\Models\Invoice::generateNumber(),
+            'amount_cents' => 1900,
+            'currency' => 'USD',
+            'status' => 'paid',
+            'tier' => 'family',
+            'billing_period' => 'monthly',
+            'paid_at' => now()->subDays(10),
+            'payment_method' => 'credit_card',
+            'last4' => '4242',
+        ]);
+
+        $this->withToken($this->tokenFor($platform))
+            ->postJson('/api/v1/platform/refunds/eligibility', [
+                'invoice_id' => $expiredMonthlyInvoice->id,
+            ])
+            ->assertOk()
+            ->assertJsonPath('eligible', false)
+            ->assertJsonPath('refund_percent', 0)
+            ->assertJsonPath('recommended_refund_cents', 0);
+
+        // 3. Annual invoice issued 20 days ago (within 30-day window -> 80% refund)
+        $recentAnnualInvoice = \App\Models\Invoice::create([
+            'tenant_id' => $tenant->id,
+            'invoice_number' => \App\Models\Invoice::generateNumber(),
+            'amount_cents' => 19000,
+            'currency' => 'USD',
+            'status' => 'paid',
+            'tier' => 'family',
+            'billing_period' => 'annual',
+            'paid_at' => now()->subDays(20),
+            'payment_method' => 'credit_card',
+            'last4' => '4242',
+        ]);
+
+        $this->withToken($this->tokenFor($platform))
+            ->postJson('/api/v1/platform/refunds/eligibility', [
+                'invoice_id' => $recentAnnualInvoice->id,
+            ])
+            ->assertOk()
+            ->assertJsonPath('eligible', true)
+            ->assertJsonPath('refund_percent', 80)
+            ->assertJsonPath('recommended_refund_cents', 15200);
+
+        // 4. Annual invoice issued 45 days ago (past 30-day window -> ineligible)
+        $expiredAnnualInvoice = \App\Models\Invoice::create([
+            'tenant_id' => $tenant->id,
+            'invoice_number' => \App\Models\Invoice::generateNumber(),
+            'amount_cents' => 19000,
+            'currency' => 'USD',
+            'status' => 'paid',
+            'tier' => 'family',
+            'billing_period' => 'annual',
+            'paid_at' => now()->subDays(45),
+            'payment_method' => 'credit_card',
+            'last4' => '4242',
+        ]);
+
+        $this->withToken($this->tokenFor($platform))
+            ->postJson('/api/v1/platform/refunds/eligibility', [
+                'invoice_id' => $expiredAnnualInvoice->id,
+            ])
+            ->assertOk()
+            ->assertJsonPath('eligible', false)
+            ->assertJsonPath('refund_percent', 0);
+    }
+
+    public function test_saas_plan_change_lock_and_mid_cycle_adjustment_rules(): void
+    {
+        $tenant = $this->createTenant('Plan Change Household');
+        $user = $this->createMember($tenant, 'tenant_admin');
+
+        // Case A: Day 1 of monthly plan (< 3 days) -> Locked early grace period
+        $this->withBypass(function () use ($tenant) {
+            $tenant->subscription_tier = 'plus';
+            $tenant->save();
+
+            \App\Models\Invoice::create([
+                'tenant_id' => $tenant->id,
+                'invoice_number' => \App\Models\Invoice::generateNumber(),
+                'amount_cents' => 900,
+                'currency' => 'USD',
+                'status' => 'paid',
+                'tier' => 'plus',
+                'billing_period' => 'monthly',
+                'period_start' => now()->subDay(),
+                'paid_at' => now()->subDay(),
+                'payment_method' => 'credit_card',
+                'last4' => '4242',
+            ]);
+        });
+
+        $this->withToken($this->tokenFor($user))
+            ->postJson('/api/v1/billing/change-plan-preview', [
+                'tier' => 'family',
+                'billing_period' => 'monthly',
+            ])
+            ->assertOk()
+            ->assertJsonPath('eligible', false)
+            ->assertJsonPath('policy_code', 'monthly_early_lock');
+
+        $this->withToken($this->tokenFor($user))
+            ->postJson('/api/v1/billing/upgrade', [
+                'tier' => 'family',
+                'billing_period' => 'monthly',
+                'payment_method' => 'credit_card',
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('policy_code', 'monthly_early_lock');
+
+        // Case B: Day 10 of monthly plan (Between 3 and 20 days) -> 50% adjustment discount
+        $this->withBypass(function () use ($tenant) {
+            \App\Models\Invoice::where('tenant_id', $tenant->id)->update([
+                'period_start' => now()->subDays(10),
+                'paid_at' => now()->subDays(10),
+            ]);
+        });
+
+        $this->withToken($this->tokenFor($user))
+            ->postJson('/api/v1/billing/change-plan-preview', [
+                'tier' => 'family',
+                'billing_period' => 'monthly',
+            ])
+            ->assertOk()
+            ->assertJsonPath('eligible', true)
+            ->assertJsonPath('adjustment_percent', 50)
+            ->assertJsonPath('final_amount_cents', 950); // 50% of 1900
+
+        $upgradeRes = $this->withToken($this->tokenFor($user))
+            ->postJson('/api/v1/billing/upgrade', [
+                'tier' => 'family',
+                'billing_period' => 'monthly',
+                'payment_method' => 'credit_card',
+            ])
+            ->assertCreated()
+            ->assertJsonPath('invoice.amount_cents', 950);
+
+        // Case C: Day 25 of monthly plan (> 20 days) -> Locked late cycle freeze
+        $this->withBypass(function () use ($tenant) {
+            \App\Models\Invoice::where('tenant_id', $tenant->id)->update([
+                'period_start' => now()->subDays(25),
+                'paid_at' => now()->subDays(25),
+            ]);
+        });
+
+        $this->withToken($this->tokenFor($user))
+            ->postJson('/api/v1/billing/change-plan-preview', [
+                'tier' => 'enterprise',
+                'billing_period' => 'monthly',
+            ])
+            ->assertOk()
+            ->assertJsonPath('eligible', false)
+            ->assertJsonPath('policy_code', 'monthly_late_freeze');
+
+        $this->withToken($this->tokenFor($user))
+            ->postJson('/api/v1/billing/upgrade', [
+                'tier' => 'enterprise',
+                'billing_period' => 'monthly',
+                'payment_method' => 'credit_card',
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('policy_code', 'monthly_late_freeze');
+
+        // Case D: Annual plan > 90 days (3 months) -> Locked after 3 months
+        $this->withBypass(function () use ($tenant) {
+            \App\Models\Invoice::where('tenant_id', $tenant->id)->update([
+                'billing_period' => 'annual',
+                'period_start' => now()->subDays(100),
+                'paid_at' => now()->subDays(100),
+            ]);
+        });
+
+        $this->withToken($this->tokenFor($user))
+            ->postJson('/api/v1/billing/change-plan-preview', [
+                'tier' => 'enterprise',
+                'billing_period' => 'annual',
+            ])
+            ->assertOk()
+            ->assertJsonPath('eligible', false)
+            ->assertJsonPath('policy_code', 'annual_late_freeze');
+
+        $this->withToken($this->tokenFor($user))
+            ->postJson('/api/v1/billing/upgrade', [
+                'tier' => 'enterprise',
+                'billing_period' => 'annual',
+                'payment_method' => 'credit_card',
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('policy_code', 'annual_late_freeze');
     }
 }

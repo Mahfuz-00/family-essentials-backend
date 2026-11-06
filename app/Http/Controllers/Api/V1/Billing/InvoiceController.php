@@ -51,7 +51,7 @@ class InvoiceController extends Controller
             abort(404, 'Invoice not found.');
         }
 
-        if ($invoice->payment_method === 'cash') {
+        if ($invoice->payment_method === 'cash' && ! $request->user()?->is_platform_admin) {
             abort(400, 'Digital receipt download is not available for cash payments. A physical invoice is issued in person upon settlement.');
         }
 
@@ -60,6 +60,11 @@ class InvoiceController extends Controller
         $lineItems = $invoice->line_items ?? [
             ['description' => "FairShare {$invoice->tier} Subscription", 'amount_cents' => $invoice->amount_cents],
         ];
+
+        $isCash = $invoice->payment_method === 'cash';
+        $badgeText = $isCash
+            ? ($invoice->status === 'paid' ? 'Paid in Cash (In-Person)' : 'Pending In-Person Cash Settlement')
+            : 'Status: '.$invoice->status;
 
         $html = '<!DOCTYPE html>
 <html lang="en">
@@ -86,7 +91,7 @@ class InvoiceController extends Controller
             <div style="font-size: 13px; color: #4d6054;">Household Operations &amp; Shared Accountability</div>
         </div>
         <div>
-            <div class="badge">Status: '.$invoice->status.'</div>
+            <div class="badge">'.$badgeText.'</div>
             <div style="font-size: 14px; font-weight: bold; margin-top: 6px;">'.$invoice->invoice_number.'</div>
         </div>
     </div>
@@ -99,8 +104,8 @@ class InvoiceController extends Controller
         </div>
         <div style="text-align: right;">
             <strong>Payment Date:</strong> '.$paidDate.'<br>
-            <strong>Payment Method:</strong> '.ucwords(str_replace('_', ' ', $invoice->payment_method)).' (ending '.$invoice->last4.')<br>
-            <strong>Plan Tier:</strong> '.ucfirst($invoice->tier).'
+            <strong>Payment Method:</strong> '.($isCash ? 'Cash / In-Person Handover' : ucwords(str_replace('_', ' ', $invoice->payment_method)).' (ending '.$invoice->last4.')').'<br>
+            <strong>Plan Tier:</strong> '.ucfirst($invoice->tier).' ('.ucfirst($invoice->billing_period).')
         </div>
     </div>
 
@@ -125,9 +130,30 @@ class InvoiceController extends Controller
     </table>
 
     <div class="total">
-        Total Paid: '.$formattedAmount.' '.$invoice->currency.'
-    </div>
+        Total: '.$formattedAmount.' '.$invoice->currency.'
+    </div>';
 
+        if ($isCash) {
+            $html .= '
+    <div style="margin-top: 30px; padding: 18px; border: 2px dashed #376847; border-radius: 10px; background: #fdfcf7;">
+        <div style="font-weight: 800; font-size: 13px; color: #284e34; text-transform: uppercase; margin-bottom: 6px;">
+            Physical In-Person Cash Settlement Handover Receipt
+        </div>
+        <div style="font-size: 12px; color: #4d6054; margin-bottom: 14px;">
+            This document serves as the official printed invoice voucher handed to the household client upon in-person cash settlement.
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 12px; color: #191c1e; padding-top: 10px; border-top: 1px solid #d8e2dc;">
+            <div><strong>Collected By (Platform Admin):</strong> ______________________</div>
+            <div><strong>Date of Handover:</strong> _________________</div>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 12px; color: #191c1e; margin-top: 16px;">
+            <div><strong>Household Client Signature:</strong> __________________________</div>
+            <div><strong>Amount Received:</strong> '.$formattedAmount.' '.$invoice->currency.'</div>
+        </div>
+    </div>';
+        }
+
+        $html .= '
     <div class="footer">
         Thank you for trusting FairShare with your household coordination.<br>
         Questions? Contact support@fairshare.app
@@ -181,6 +207,113 @@ class InvoiceController extends Controller
         ]);
     }
 
+    public function changePlanPreview(Request $request): JsonResponse
+    {
+        $tenant = $this->currentTenant();
+        $targetTier = $request->input('tier', 'family');
+        $targetPeriod = in_array($request->input('billing_period', 'monthly'), ['annual', 'yearly']) ? 'annual' : 'monthly';
+
+        $prices = [
+            'starter' => 0,
+            'plus' => 900,
+            'family' => 1900,
+            'family_plus' => 2900,
+            'enterprise' => 4900,
+        ];
+
+        $baseAmountCents = $prices[$targetTier] ?? 1900;
+        if ($targetPeriod === 'annual') {
+            $baseAmountCents = (int) round($baseAmountCents * 10);
+        }
+
+        $latestPaidInvoice = Invoice::where('tenant_id', $tenant->id)
+            ->where('status', 'paid')
+            ->latest('id')
+            ->first();
+
+        if (! $latestPaidInvoice || $latestPaidInvoice->amount_cents === 0 || in_array($tenant->subscription_tier, ['starter', 'pilot'])) {
+            return response()->json([
+                'eligible' => true,
+                'days_elapsed' => 0,
+                'current_tier' => $tenant->subscription_tier,
+                'target_tier' => $targetTier,
+                'target_period' => $targetPeriod,
+                'base_amount_cents' => $baseAmountCents,
+                'discount_cents' => 0,
+                'final_amount_cents' => $baseAmountCents,
+                'reason' => 'First-time plan selection (no cycle restrictions apply).',
+            ]);
+        }
+
+        $policy = array_merge(\App\Http\Controllers\Api\V1\Platform\RefundController::getDefaultPolicy(), \App\Models\PlatformSetting::get('refund_policy', []));
+        $currentPeriod = in_array(strtolower($latestPaidInvoice->billing_period), ['annual', 'yearly']) ? 'annual' : 'monthly';
+        $cycleStart = $latestPaidInvoice->period_start ?? $latestPaidInvoice->paid_at ?? $latestPaidInvoice->created_at;
+        $daysElapsed = max(0, (int) $cycleStart->diffInDays(now()));
+
+        if ($currentPeriod === 'monthly') {
+            $lockStart = (int) ($policy['monthly_change_lock_start_days'] ?? 3);
+            $lockEnd = (int) ($policy['monthly_change_lock_end_days'] ?? 20);
+
+            if ($daysElapsed < $lockStart) {
+                return response()->json([
+                    'eligible' => false,
+                    'days_elapsed' => $daysElapsed,
+                    'reason' => "Plan changes are locked during the initial {$lockStart}-day activation period ({$daysElapsed} of {$lockStart} days elapsed).",
+                    'policy_code' => 'monthly_early_lock',
+                ]);
+            }
+
+            if ($daysElapsed > $lockEnd) {
+                return response()->json([
+                    'eligible' => false,
+                    'days_elapsed' => $daysElapsed,
+                    'reason' => "Plan modifications for this monthly cycle closed on Day {$lockEnd} ({$daysElapsed} days elapsed). Changes will apply at your next billing renewal.",
+                    'policy_code' => 'monthly_late_freeze',
+                ]);
+            }
+
+            $adjustmentPercent = (int) ($policy['monthly_change_adjustment_percent'] ?? 50);
+            $discountCents = (int) round(($baseAmountCents * $adjustmentPercent) / 100);
+            $finalAmountCents = max(0, $baseAmountCents - $discountCents);
+
+            return response()->json([
+                'eligible' => true,
+                'days_elapsed' => $daysElapsed,
+                'current_tier' => $tenant->subscription_tier,
+                'target_tier' => $targetTier,
+                'target_period' => $targetPeriod,
+                'base_amount_cents' => $baseAmountCents,
+                'discount_cents' => $discountCents,
+                'adjustment_percent' => $adjustmentPercent,
+                'final_amount_cents' => $finalAmountCents,
+                'reason' => "Day {$daysElapsed} of monthly cycle: Eligible with a {$adjustmentPercent}% mid-cycle adjustment credit.",
+            ]);
+        }
+
+        // Annual
+        $annualLockDays = (int) ($policy['annual_change_window_days'] ?? 90);
+        if ($daysElapsed > $annualLockDays) {
+            return response()->json([
+                'eligible' => false,
+                'days_elapsed' => $daysElapsed,
+                'reason' => "Annual plan modifications are locked after 3 months ({$annualLockDays} days). Currently {$daysElapsed} days elapsed.",
+                'policy_code' => 'annual_late_freeze',
+            ]);
+        }
+
+        return response()->json([
+            'eligible' => true,
+            'days_elapsed' => $daysElapsed,
+            'current_tier' => $tenant->subscription_tier,
+            'target_tier' => $targetTier,
+            'target_period' => $targetPeriod,
+            'base_amount_cents' => $baseAmountCents,
+            'discount_cents' => 0,
+            'final_amount_cents' => $baseAmountCents,
+            'reason' => "Within 3-month annual plan modification window ({$daysElapsed} of {$annualLockDays} days elapsed).",
+        ]);
+    }
+
     /**
      * Simulation of plan upgrade/payment: generates an official invoice upon completion
      */
@@ -224,6 +357,60 @@ class InvoiceController extends Controller
             $amountCents = (int) round($amountCents * 10); // 2 months free on annual
         }
 
+        // SaaS Subscription Plan Modification Policy Verification
+        $latestPaidInvoice = Invoice::where('tenant_id', $tenant->id)
+            ->where('status', 'paid')
+            ->latest('id')
+            ->first();
+
+        $discountCents = 0;
+        $adjustmentPercent = 0;
+        $originalAmountCents = $amountCents;
+
+        if ($latestPaidInvoice && $latestPaidInvoice->amount_cents > 0 && ! in_array($tenant->subscription_tier, ['starter', 'pilot'])) {
+            $policy = array_merge(\App\Http\Controllers\Api\V1\Platform\RefundController::getDefaultPolicy(), \App\Models\PlatformSetting::get('refund_policy', []));
+            $currentPeriod = in_array(strtolower($latestPaidInvoice->billing_period), ['annual', 'yearly']) ? 'annual' : 'monthly';
+            $cycleStart = $latestPaidInvoice->period_start ?? $latestPaidInvoice->paid_at ?? $latestPaidInvoice->created_at;
+            $daysElapsed = max(0, (int) $cycleStart->diffInDays(now()));
+
+            if ($currentPeriod === 'monthly') {
+                $lockStart = (int) ($policy['monthly_change_lock_start_days'] ?? 3);
+                $lockEnd = (int) ($policy['monthly_change_lock_end_days'] ?? 20);
+
+                if ($daysElapsed < $lockStart) {
+                    return response()->json([
+                        'message' => 'Plan change is not possible before 3 days of activation (grace period).',
+                        'policy_code' => 'monthly_early_lock',
+                        'days_elapsed' => $daysElapsed,
+                        'window_start_day' => $lockStart,
+                    ], 422);
+                }
+
+                if ($daysElapsed > $lockEnd) {
+                    return response()->json([
+                        'message' => 'Plan change is not possible after 20 days of the monthly billing cycle. Changes will apply at your next billing renewal.',
+                        'policy_code' => 'monthly_late_freeze',
+                        'days_elapsed' => $daysElapsed,
+                        'window_end_day' => $lockEnd,
+                    ], 422);
+                }
+
+                $adjustmentPercent = (int) ($policy['monthly_change_adjustment_percent'] ?? 50);
+                $discountCents = (int) round(($amountCents * $adjustmentPercent) / 100);
+                $amountCents = max(0, $amountCents - $discountCents);
+            } else {
+                $annualWindowDays = (int) ($policy['annual_change_window_days'] ?? 90);
+                if ($daysElapsed > $annualWindowDays) {
+                    return response()->json([
+                        'message' => 'Plan change is not possible after 3 months (90 days) of an annual plan.',
+                        'policy_code' => 'annual_late_freeze',
+                        'days_elapsed' => $daysElapsed,
+                        'window_days' => $annualWindowDays,
+                    ], 422);
+                }
+            }
+        }
+
         $isCash = $paymentMethod === 'cash';
         $autoMarkPaid = $isCash ? (bool) ($cashSettings['auto_mark_paid'] ?? false) : true;
         $status = $autoMarkPaid ? 'paid' : 'pending';
@@ -237,7 +424,24 @@ class InvoiceController extends Controller
             $tenant->save();
         }
 
-        // 2. Automatically generate and record the invoice
+        // 2. Prepare line items
+        $lineItems = [
+            [
+                'description' => "FairShare ".ucfirst($tier)." Plan ({$period})".($isCash ? ' — Cash In-Person' : ''),
+                'quantity' => 1,
+                'amount_cents' => $originalAmountCents,
+            ],
+        ];
+
+        if ($discountCents > 0) {
+            $lineItems[] = [
+                'description' => "Mid-Cycle Proration Adjustment ({$adjustmentPercent}% Credit)",
+                'quantity' => 1,
+                'amount_cents' => -$discountCents,
+            ];
+        }
+
+        // 3. Automatically generate and record the invoice
         $invoice = Invoice::create([
             'tenant_id' => $tenant->id,
             'invoice_number' => Invoice::generateNumber(),
@@ -251,13 +455,7 @@ class InvoiceController extends Controller
             'paid_at' => $paidAt,
             'payment_method' => $paymentMethod,
             'last4' => $last4,
-            'line_items' => [
-                [
-                    'description' => "FairShare ".ucfirst($tier)." Plan ({$period})".($isCash ? ' — Cash In-Person' : ''),
-                    'quantity' => 1,
-                    'amount_cents' => $amountCents,
-                ],
-            ],
+            'line_items' => $lineItems,
         ]);
 
         $this->audit->record('billing.invoice_generated', [
