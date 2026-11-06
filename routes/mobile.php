@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\V1\Ledger\LedgerController;
 use App\Http\Controllers\Api\V1\Ledger\LedgerEntryController;
 use App\Http\Controllers\Api\V1\Ledger\LedgerMemberController;
 use App\Http\Controllers\Api\V1\Ledger\LedgerSummaryController;
+use App\Http\Controllers\Api\V1\Ledger\ReceiptScanController;
 use App\Http\Controllers\Api\V1\Notifications\DeviceTokenController;
 use App\Http\Controllers\Api\V1\Notifications\LocationNotificationPreferenceController;
 use App\Http\Controllers\Api\V1\Notifications\NotificationLogController;
@@ -167,6 +168,7 @@ Route::prefix('v1')->group(function () {
         Route::get('ledgers/{ledger}/entries', [LedgerEntryController::class, 'index']);
         Route::post('ledgers/{ledger}/entries', [LedgerEntryController::class, 'store']);
         Route::delete('ledgers/{ledger}/entries/{entry}', [LedgerEntryController::class, 'destroy']);
+        Route::post('ledger/receipts/scan', [ReceiptScanController::class, 'scan']);
     });
 
     // ---- Provider webhooks (no tenant context; signature verified) ------
