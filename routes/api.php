@@ -20,12 +20,15 @@ use App\Http\Controllers\Api\V1\Ledger\LedgerSummaryController;
 use App\Http\Controllers\Api\V1\Pantry\EssentialController;
 use App\Http\Controllers\Api\V1\Places\GeofenceController;
 use App\Http\Controllers\Api\V1\Places\PlaceController;
+use App\Http\Controllers\Api\V1\Platform\AnalyticsController as PlatformAnalyticsController;
 use App\Http\Controllers\Api\V1\Platform\AuditLogController as PlatformAuditLogController;
 use App\Http\Controllers\Api\V1\Platform\BackupController as PlatformBackupController;
 use App\Http\Controllers\Api\V1\Platform\FeedbackController as PlatformFeedbackController;
 use App\Http\Controllers\Api\V1\Platform\HealthController as PlatformHealthController;
 use App\Http\Controllers\Api\V1\Platform\IncidentController as PlatformIncidentController;
 use App\Http\Controllers\Api\V1\Platform\MetricsController as PlatformMetricsController;
+use App\Http\Controllers\Api\V1\Platform\RefundController as PlatformRefundController;
+use App\Http\Controllers\Api\V1\Platform\SettingsController as PlatformSettingsController;
 use App\Http\Controllers\Api\V1\Platform\TenantController as PlatformTenantController;
 use App\Http\Controllers\Api\V1\ProfileController;
 use App\Http\Controllers\Api\V1\Recurring\RecurringRuleController;
@@ -98,14 +101,36 @@ Route::prefix('v1')->group(function () {
         ->prefix('platform')
         ->group(function () {
             Route::get('metrics', [PlatformMetricsController::class, 'index']);
+            Route::get('analytics', [PlatformAnalyticsController::class, 'index']);
 
             // ---- Operations: system health and the incident log -------------
             Route::get('health', [PlatformHealthController::class, 'index']);
             Route::post('health/failed-jobs/{id}/retry', [PlatformHealthController::class, 'retryFailedJob']);
+            Route::post('health/failed-jobs/retry-all', [PlatformHealthController::class, 'retryAllFailedJobs']);
+            Route::post('health/failed-jobs/flush', [PlatformHealthController::class, 'flushFailedJobs']);
+            Route::post('health/cache/clear', [PlatformHealthController::class, 'clearCache']);
+            Route::get('health/maintenance', [PlatformHealthController::class, 'maintenance']);
+            Route::post('health/maintenance', [PlatformHealthController::class, 'toggleMaintenance']);
 
             Route::get('incidents', [PlatformIncidentController::class, 'index']);
             Route::post('incidents', [PlatformIncidentController::class, 'store']);
             Route::patch('incidents/{incident}', [PlatformIncidentController::class, 'update']);
+
+            // ---- Platform Settings: Email & Payment Gateways ----------------
+            Route::get('settings/payment', [PlatformSettingsController::class, 'getPaymentGateway']);
+            Route::post('settings/payment', [PlatformSettingsController::class, 'updatePaymentGateway']);
+            Route::post('settings/payment/test', [PlatformSettingsController::class, 'testPaymentGateway']);
+
+            Route::get('settings/email', [PlatformSettingsController::class, 'getEmailConfig']);
+            Route::post('settings/email', [PlatformSettingsController::class, 'updateEmailConfig']);
+            Route::post('settings/email/test', [PlatformSettingsController::class, 'testEmail']);
+
+            // ---- Refund Policy & Requests -----------------------------------
+            Route::get('refunds', [PlatformRefundController::class, 'index']);
+            Route::post('refunds', [PlatformRefundController::class, 'store']);
+            Route::post('refunds/policy', [PlatformRefundController::class, 'updatePolicy']);
+            Route::post('refunds/{id}/approve', [PlatformRefundController::class, 'approve']);
+            Route::post('refunds/{id}/reject', [PlatformRefundController::class, 'reject']);
 
             // ---- Feedback inbox: what households are telling us -------------
             Route::get('feedback', [PlatformFeedbackController::class, 'index']);

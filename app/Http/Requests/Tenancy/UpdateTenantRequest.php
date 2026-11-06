@@ -21,6 +21,8 @@ class UpdateTenantRequest extends FormRequest
         return [
             'name' => ['sometimes', 'string', 'max:255'],
             'subscription_tier' => ['sometimes', 'string', Rule::in(QuotaService::tiers())],
+            'status' => ['sometimes', 'string', Rule::in(['active', 'trial', 'suspended'])],
+            'trial_ends_at' => ['sometimes', 'nullable', 'date'],
             'settings' => ['sometimes', 'array'],
         ];
     }

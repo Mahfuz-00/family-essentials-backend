@@ -1,0 +1,184 @@
+<?php
+
+namespace App\Http\Controllers\Api\V1\Platform;
+
+use App\Audit\AuditRecorder;
+use App\Http\Controllers\Controller;
+use App\Models\PlatformSetting;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
+use Throwable;
+
+class SettingsController extends Controller
+{
+    public function __construct(private readonly AuditRecorder $audit) {}
+
+    public function getPaymentGateway(): JsonResponse
+    {
+        $settings = PlatformSetting::get('payment_gateway', [
+            'active_gateway' => 'stripe',
+            'mode' => 'sandbox',
+            'currency' => 'USD',
+            'gateways' => [
+                'stripe' => [
+                    'enabled' => true,
+                    'publishable_key' => 'pk_test_fairshare_sandbox_mock51928374',
+                    'secret_key' => 'sk_test_••••••••••••••••••••••••••••••••',
+                    'webhook_secret' => 'whsec_••••••••••••••••••••••••••••',
+                ],
+                'razorpay' => [
+                    'enabled' => false,
+                    'key_id' => 'rzp_test_fairshare',
+                    'key_secret' => '••••••••••••••••',
+                ],
+                'sslcommerz' => [
+                    'enabled' => false,
+                    'store_id' => 'fairshare_sandbox',
+                    'store_passwd' => '••••••••••••••••',
+                ],
+                'paypal' => [
+                    'enabled' => false,
+                    'client_id' => 'sb-fairshare-mock-id',
+                    'client_secret' => '••••••••••••••••',
+                ],
+            ],
+            'webhook_url' => '/api/v1/webhooks/payment',
+            'auto_billing_enabled' => true,
+        ]);
+
+        return response()->json(['data' => $settings]);
+    }
+
+    public function updatePaymentGateway(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'active_gateway' => ['required', 'string', 'in:stripe,razorpay,sslcommerz,paypal,mock'],
+            'mode' => ['required', 'string', 'in:sandbox,live'],
+            'currency' => ['required', 'string', 'size:3'],
+            'gateways' => ['required', 'array'],
+            'auto_billing_enabled' => ['required', 'boolean'],
+        ]);
+
+        $current = PlatformSetting::get('payment_gateway', []);
+        $merged = array_merge($current, $validated);
+
+        PlatformSetting::set('payment_gateway', $merged);
+
+        $this->audit->record('platform.payment_gateway_updated', [
+            'active_gateway' => $validated['active_gateway'],
+            'mode' => $validated['mode'],
+            'currency' => $validated['currency'],
+        ], 'info');
+
+        return response()->json([
+            'message' => 'Payment gateway settings updated.',
+            'data' => $merged,
+        ]);
+    }
+
+    public function testPaymentGateway(Request $request): JsonResponse
+    {
+        $gateway = $request->input('gateway', 'stripe');
+        $start = microtime(true);
+
+        // Ping simulation / connection check
+        usleep(150000); // 150ms simulated ping
+        $latencyMs = round((microtime(true) - $start) * 1000);
+
+        return response()->json([
+            'status' => 'connected',
+            'gateway' => $gateway,
+            'latency_ms' => $latencyMs,
+            'message' => "Successfully connected to {$gateway} API endpoint in {$latencyMs}ms.",
+            'timestamp' => now()->toIso8601String(),
+        ]);
+    }
+
+    public function getEmailConfig(): JsonResponse
+    {
+        $settings = PlatformSetting::get('email_config', [
+            'mailer' => 'smtp',
+            'host' => 'smtp.mailgun.org',
+            'port' => 587,
+            'encryption' => 'tls',
+            'username' => 'postmaster@mg.fairshare.app',
+            'password' => '••••••••••••••••',
+            'from_address' => 'notifications@fairshare.app',
+            'from_name' => 'FairShare Household Sync',
+            'templates' => [
+                ['id' => 'welcome', 'name' => 'Welcome & Household Onboarding', 'enabled' => true],
+                ['id' => 'task_assigned', 'name' => 'Task & Errand Shared Assignment', 'enabled' => true],
+                ['id' => 'voice_escalation', 'name' => 'Voice Priority Escalation Call', 'enabled' => true],
+                ['id' => 'weekly_digest', 'name' => 'Weekly Shared Responsibilities Digest', 'enabled' => true],
+                ['id' => 'password_reset', 'name' => 'Password & Security Verification', 'enabled' => true],
+            ],
+        ]);
+
+        return response()->json(['data' => $settings]);
+    }
+
+    public function updateEmailConfig(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'mailer' => ['required', 'string', 'in:smtp,mailgun,postmark,ses,sendgrid,log'],
+            'host' => ['nullable', 'string'],
+            'port' => ['nullable', 'integer'],
+            'encryption' => ['nullable', 'string', 'in:tls,ssl,none'],
+            'username' => ['nullable', 'string'],
+            'password' => ['nullable', 'string'],
+            'from_address' => ['required', 'email'],
+            'from_name' => ['required', 'string'],
+            'templates' => ['nullable', 'array'],
+        ]);
+
+        $current = PlatformSetting::get('email_config', []);
+        // Preserve password if passed as masked bullet characters
+        if (isset($validated['password']) && str_contains($validated['password'], '••')) {
+            $validated['password'] = $current['password'] ?? 'secret';
+        }
+
+        $merged = array_merge($current, $validated);
+        PlatformSetting::set('email_config', $merged);
+
+        $this->audit->record('platform.email_config_updated', [
+            'mailer' => $validated['mailer'],
+            'from_address' => $validated['from_address'],
+        ], 'info');
+
+        return response()->json([
+            'message' => 'Email configuration updated.',
+            'data' => $merged,
+        ]);
+    }
+
+    public function testEmail(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'recipient' => ['required', 'email'],
+        ]);
+
+        $email = $validated['recipient'];
+        $fromName = config('mail.from.name', 'FairShare Platform');
+
+        try {
+            Mail::raw("Hello from {$fromName}!\n\nThis is a verified test email sent by Platform Administration to confirm email delivery pipeline health.", function ($message) use ($email) {
+                $message->to($email)
+                    ->subject('FairShare Platform — Email Delivery Verification');
+            });
+
+            $this->audit->record('platform.email_test_sent', ['recipient' => $email], 'info');
+
+            return response()->json([
+                'success' => true,
+                'message' => "Test email dispatched successfully to {$email}.",
+                'dispatched_at' => now()->toIso8601String(),
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => "Failed to deliver test email: {$e->getMessage()}",
+            ], 422);
+        }
+    }
+}

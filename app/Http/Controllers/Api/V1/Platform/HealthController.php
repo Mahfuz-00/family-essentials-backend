@@ -8,6 +8,7 @@ use App\Http\Resources\IncidentResource;
 use App\Models\Incident;
 use App\Ops\HealthReport;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -64,6 +65,98 @@ class HealthController extends Controller
         return response()->json([
             'message' => 'Job requeued.',
             'uuid' => $job->uuid,
+        ]);
+    }
+
+    public function retryAllFailedJobs(): JsonResponse
+    {
+        $count = DB::table('failed_jobs')->count();
+
+        if ($count > 0) {
+            Artisan::call('queue:retry', ['id' => ['all']]);
+            $this->audit->record('ops.failed_jobs.retried_all', ['count' => $count], 'warning');
+        }
+
+        return response()->json([
+            'message' => $count > 0 ? "Queued {$count} failed jobs for retry." : 'No failed jobs in queue.',
+            'count' => $count,
+        ]);
+    }
+
+    public function flushFailedJobs(): JsonResponse
+    {
+        $count = DB::table('failed_jobs')->count();
+
+        if ($count > 0) {
+            DB::table('failed_jobs')->delete();
+            $this->audit->record('ops.failed_jobs.flushed', ['count' => $count], 'warning');
+        }
+
+        return response()->json([
+            'message' => "Flushed {$count} failed jobs.",
+            'count' => $count,
+        ]);
+    }
+
+    public function clearCache(Request $request): JsonResponse
+    {
+        $type = $request->input('type', 'all');
+
+        try {
+            \Illuminate\Support\Facades\Cache::flush();
+            $this->audit->record('ops.cache.cleared', ['type' => $type], 'info');
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Platform cache flushed successfully.',
+                'cleared_at' => now()->toIso8601String(),
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to flush cache: '.$e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function maintenance(): JsonResponse
+    {
+        $status = \App\Models\PlatformSetting::get('maintenance_mode', [
+            'enabled' => false,
+            'message' => 'Platform is operating normally.',
+            'started_at' => null,
+            'allowed_ips' => [],
+        ]);
+
+        return response()->json(['data' => $status]);
+    }
+
+    public function toggleMaintenance(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'enabled' => ['required', 'boolean'],
+            'message' => ['nullable', 'string'],
+            'allowed_ips' => ['nullable', 'array'],
+        ]);
+
+        $status = [
+            'enabled' => $validated['enabled'],
+            'message' => $validated['message'] ?? 'FairShare is undergoing scheduled maintenance.',
+            'started_at' => $validated['enabled'] ? now()->toIso8601String() : null,
+            'allowed_ips' => $validated['allowed_ips'] ?? [],
+        ];
+
+        \App\Models\PlatformSetting::set('maintenance_mode', $status);
+
+        $this->audit->record(
+            $validated['enabled'] ? 'ops.maintenance.enabled' : 'ops.maintenance.disabled',
+            ['message' => $status['message']],
+            $validated['enabled'] ? 'warning' : 'info'
+        );
+
+        return response()->json([
+            'message' => $validated['enabled'] ? 'Maintenance mode enabled.' : 'Maintenance mode disabled.',
+            'data' => $status,
         ]);
     }
 
