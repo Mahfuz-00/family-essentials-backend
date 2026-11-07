@@ -22,6 +22,10 @@ class ReceiptScanController extends Controller
     /**
      * Scan receipt image (or process simulated optical data) to parse total, merchant,
      * items, and match against household pantry essentials to suggest restocks.
+     * 
+     * Requirements:
+     * - Receipt must be machine-printed (handwritten receipts are not supported).
+     * - Receipt must be in English.
      */
     public function scan(Request $request): JsonResponse
     {
@@ -141,6 +145,11 @@ class ReceiptScanController extends Controller
             'suggested_restocks' => $suggestedRestocks,
             'recorded_entry' => $recordedEntry ? new LedgerEntryResource($recordedEntry) : null,
             'confidence' => 0.98,
+            'requirements' => [
+                'printed_only' => true,
+                'language' => 'en',
+                'notice' => 'Receipt must be machine-printed and in English.',
+            ],
         ]);
     }
 }
