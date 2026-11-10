@@ -6,6 +6,8 @@ use App\Audit\AuditRecorder;
 use App\Http\Controllers\Controller;
 use App\Models\PlatformSetting;
 use App\Models\RefundRequest;
+use App\Models\Tenant;
+use App\Tenancy\TenantContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -254,5 +256,53 @@ class RefundController extends Controller
             'message' => 'Refund request rejected.',
             'refund' => $refund->load('processor:id,name'),
         ]);
+    }
+
+    public function publicPolicy(): JsonResponse
+    {
+        $policy = array_merge(self::getDefaultPolicy(), PlatformSetting::get('refund_policy', []));
+
+        return response()->json([
+            'data' => $policy,
+            'policy' => $policy,
+        ]);
+    }
+
+    public function submitTenantRefundRequest(Request $request): JsonResponse
+    {
+        $tenantId = app(TenantContext::class)->id();
+        $tenant = Tenant::findOrFail($tenantId);
+        $user = $request->user();
+
+        $validated = $request->validate([
+            'invoice_id' => ['nullable', 'integer'],
+            'amount_cents' => ['required', 'integer', 'min:100'],
+            'currency' => ['nullable', 'string', 'size:3'],
+            'reason' => ['required', 'string', 'max:1000'],
+        ]);
+
+        $refund = RefundRequest::create([
+            'tenant_id' => $tenant->id,
+            'tenant_name' => $tenant->name,
+            'user_id' => $user->id,
+            'user_email' => $user->email,
+            'invoice_id' => $validated['invoice_id'] ?? null,
+            'amount_cents' => $validated['amount_cents'],
+            'currency' => $validated['currency'] ?? 'USD',
+            'reason' => $validated['reason'],
+            'status' => 'pending',
+        ]);
+
+        $this->audit->record('billing.refund_requested', [
+            'tenant_id' => $tenant->id,
+            'refund_id' => $refund->id,
+            'amount_cents' => $refund->amount_cents,
+            'reason' => $refund->reason,
+        ]);
+
+        return response()->json([
+            'message' => 'Your refund request has been received. Our team will review it under our refund policy.',
+            'data' => $refund,
+        ], 201);
     }
 }

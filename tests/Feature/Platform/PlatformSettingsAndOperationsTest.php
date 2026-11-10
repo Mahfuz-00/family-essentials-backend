@@ -215,6 +215,11 @@ class PlatformSettingsAndOperationsTest extends TestCase
             ->assertJsonPath('cash_settlements.0.id', $cashInvoiceId)
             ->assertJsonPath('cash_settlements.0.tenant.name', 'Cash Billing Household');
 
+        // 4b. Before approval, pending cash invoices cannot be digitally downloaded by tenant
+        $this->withToken($this->tokenFor($user))
+            ->get('/api/v1/billing/invoices/'.$cashInvoiceId.'/download')
+            ->assertStatus(400);
+
         // 5. Platform admin checks pending queue and approves cash payment
         $this->withToken($this->tokenFor($platform))
             ->getJson('/api/v1/platform/billing/pending-cash')
@@ -230,12 +235,13 @@ class PlatformSettingsAndOperationsTest extends TestCase
         $approvedTenant = $this->withBypass(fn () => $tenant->fresh());
         $this->assertSame('family', $approvedTenant->subscription_tier);
 
-        // Cash invoices cannot be digitally downloaded by tenant because physical paper invoice is issued in person
-        $this->withToken($this->tokenFor($user))
+        // Once cash payment is accepted by platform admin, tenant CAN download the cash invoice from dashboard
+        $tenantDownloadRes = $this->withToken($this->tokenFor($user))
             ->get('/api/v1/billing/invoices/'.$cashInvoiceId.'/download')
-            ->assertStatus(400);
+            ->assertOk();
+        $this->assertStringContainsString('Paid in Cash (In-Person)', $tenantDownloadRes->getContent());
 
-        // However, Platform Admin CAN download the physical handover copy
+        // Platform Admin also CAN download the physical handover copy
         $adminDownloadRes = $this->withToken($this->tokenFor($platform))
             ->get('/api/v1/platform/billing/invoices/'.$cashInvoiceId.'/download')
             ->assertOk();

@@ -80,6 +80,9 @@ Route::prefix('v1')->group(function () {
             ->middleware(['signed', 'throttle:6,1'])
             ->name('verification.verify');
 
+        // Publicly viewable refund policy
+        Route::get('refund-policy', [PlatformRefundController::class, 'publicPolicy']);
+
         Route::middleware(['auth:sanctum', 'abilities:dashboard'])->group(function () {
             Route::get('me', [ProfileController::class, 'show']);
             Route::patch('me', [ProfileController::class, 'update']);
@@ -317,6 +320,8 @@ Route::prefix('v1')->group(function () {
         Route::post('billing/portal', [InvoiceController::class, 'createPortalSession']);
         Route::post('billing/change-plan-preview', [InvoiceController::class, 'changePlanPreview']);
         Route::post('billing/upgrade', [InvoiceController::class, 'simulateUpgrade']);
+        Route::get('billing/refund-policy', [PlatformRefundController::class, 'publicPolicy']);
+        Route::post('billing/refund-request', [PlatformRefundController::class, 'submitTenantRefundRequest']);
 
         // ---- External Calendar Sync (Gap A) ----------------------------
         Route::get('calendar/feed-url', [CalendarFeedController::class, 'getFeedUrl']);

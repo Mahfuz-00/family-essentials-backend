@@ -52,8 +52,8 @@ class InvoiceController extends Controller
             abort(404, 'Invoice not found.');
         }
 
-        if ($invoice->payment_method === 'cash' && ! $request->user()?->is_platform_admin) {
-            abort(400, 'Digital receipt download is not available for cash payments. A physical invoice is issued in person upon settlement.');
+        if ($invoice->payment_method === 'cash' && $invoice->status !== 'paid' && ! $request->user()?->is_platform_admin) {
+            abort(400, 'Digital receipt download is not available until cash payment has been accepted and approved by platform admin.');
         }
 
         $formattedAmount = '$'.number_format($invoice->amount_cents / 100, 2);
