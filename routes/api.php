@@ -26,6 +26,8 @@ use App\Http\Controllers\Api\V1\Pantry\EssentialController;
 use App\Http\Controllers\Api\V1\Places\GeofenceController;
 use App\Http\Controllers\Api\V1\Places\PlaceController;
 use App\Http\Controllers\Api\V1\Billing\InvoiceController;
+use App\Http\Controllers\Api\V1\Billing\PaymentCheckoutController;
+use App\Http\Controllers\Api\V1\Billing\PaymentWebhookController;
 use App\Http\Controllers\Api\V1\Calendar\CalendarFeedController;
 use App\Http\Controllers\Api\V1\Ledger\ReceiptScanController;
 use App\Http\Controllers\Api\V1\Requests\NlpDispatcherController;
@@ -335,6 +337,7 @@ Route::prefix('v1')->group(function () {
         Route::post('billing/portal', [InvoiceController::class, 'createPortalSession']);
         Route::post('billing/change-plan-preview', [InvoiceController::class, 'changePlanPreview']);
         Route::post('billing/upgrade', [InvoiceController::class, 'simulateUpgrade']);
+        Route::post('billing/checkout-session', [PaymentCheckoutController::class, 'store']);
         Route::post('billing/cancel', [InvoiceController::class, 'cancelSubscription']);
         Route::get('billing/refund-policy', [PlatformRefundController::class, 'publicPolicy']);
         Route::post('billing/refund-request', [PlatformRefundController::class, 'submitTenantRefundRequest']);
@@ -352,4 +355,5 @@ Route::prefix('v1')->group(function () {
 
     // ---- Provider webhooks (no tenant context; signature verified) ------
     Route::post('webhooks/voice/{provider}', [VoiceWebhookController::class, 'handle']);
+    Route::post('webhooks/payments/{provider}', [PaymentWebhookController::class, 'handle']);
 });

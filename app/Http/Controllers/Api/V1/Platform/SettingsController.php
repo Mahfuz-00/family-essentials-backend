@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\PlatformSetting;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Throwable;
 
@@ -202,6 +203,57 @@ class SettingsController extends Controller
             ? ($request->input('mode') === 'sandbox')
             : (bool) ($gatewayConfig['sandbox'] ?? true);
         $mode = $isSandbox ? 'sandbox' : 'live';
+
+        if ($gateway === 'stripe') {
+            $secret = config('services.stripe.secret');
+
+            if (! is_string($secret) || $secret === '') {
+                return response()->json([
+                    'status' => 'unconfigured',
+                    'gateway' => 'stripe',
+                    'message' => 'STRIPE_SECRET is not set. Add the sandbox or live secret key to the environment.',
+                ], 422);
+            }
+
+            $mode = str_starts_with($secret, 'sk_live_') ? 'live' : 'sandbox';
+            $start = microtime(true);
+
+            try {
+                $response = Http::withToken($secret)
+                    ->acceptJson()
+                    ->timeout(10)
+                    ->get('https://api.stripe.com/v1/balance');
+            } catch (Throwable $exception) {
+                return response()->json([
+                    'status' => 'error',
+                    'gateway' => 'stripe',
+                    'mode' => $mode,
+                    'message' => 'Could not reach Stripe: '.$exception->getMessage(),
+                ], 502);
+            }
+
+            $latencyMs = round((microtime(true) - $start) * 1000);
+
+            if ($response->failed()) {
+                return response()->json([
+                    'status' => 'error',
+                    'gateway' => 'stripe',
+                    'mode' => $mode,
+                    'latency_ms' => $latencyMs,
+                    'message' => 'Stripe rejected the credentials: '
+                        .($response->json('error.message') ?? 'HTTP '.$response->status()),
+                ], 502);
+            }
+
+            return response()->json([
+                'status' => 'connected',
+                'gateway' => 'stripe',
+                'mode' => $mode,
+                'latency_ms' => $latencyMs,
+                'message' => "Stripe API reachable with the configured {$mode} secret key.",
+                'timestamp' => now()->toIso8601String(),
+            ]);
+        }
 
         if ($gateway === 'cash') {
             return response()->json([

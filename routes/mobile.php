@@ -27,6 +27,7 @@ use App\Http\Controllers\Api\V1\Pantry\EssentialController;
 use App\Http\Controllers\Api\V1\Places\GeofenceController;
 use App\Http\Controllers\Api\V1\Places\PlaceController;
 use App\Http\Controllers\Api\V1\Billing\InvoiceController;
+use App\Http\Controllers\Api\V1\Billing\PaymentCheckoutController;
 use App\Http\Controllers\Api\V1\ProfileController;
 use App\Http\Controllers\Api\V1\Recurring\RecurringRuleController;
 use App\Http\Controllers\Api\V1\Requests\ItemController;
@@ -169,6 +170,7 @@ Route::prefix('v1')->group(function () {
         Route::get('billing/payment-methods', [InvoiceController::class, 'paymentMethods']);
         Route::get('billing/invoices', [InvoiceController::class, 'index']);
         Route::post('billing/upgrade', [InvoiceController::class, 'simulateUpgrade']);
+        Route::post('billing/checkout-session', [PaymentCheckoutController::class, 'store']);
         Route::post('billing/cancel', [InvoiceController::class, 'cancelSubscription']);
 
         // ---- Recurring rules --------------------------------------------
