@@ -15,6 +15,7 @@ final class PaymentGatewayManager
             'razorpay' => app(RazorpayGateway::class),
             'sslcommerz' => app(SslCommerzGateway::class),
             'bkash' => app(BkashGateway::class),
+            'paystack' => app(PaystackGateway::class),
             default => throw new InvalidArgumentException("Unsupported payment gateway [{$key}]."),
         };
     }

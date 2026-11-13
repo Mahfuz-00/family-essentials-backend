@@ -447,6 +447,57 @@ class SettingsController extends Controller
             ]);
         }
 
+        if ($gateway === 'paystack') {
+            $secretKey = config('services.paystack.secret_key');
+
+            if (! is_string($secretKey) || $secretKey === '') {
+                return response()->json([
+                    'status' => 'unconfigured',
+                    'gateway' => 'paystack',
+                    'message' => 'PAYSTACK_SECRET_KEY is not set.',
+                ], 422);
+            }
+
+            $paystackMode = str_starts_with($secretKey, 'sk_live_') ? 'live' : 'sandbox';
+            $start = microtime(true);
+
+            try {
+                $response = Http::withToken($secretKey)
+                    ->acceptJson()
+                    ->timeout(10)
+                    ->get('https://api.paystack.co/transaction', ['perPage' => 1]);
+            } catch (Throwable $exception) {
+                return response()->json([
+                    'status' => 'error',
+                    'gateway' => 'paystack',
+                    'mode' => $paystackMode,
+                    'message' => 'Could not reach Paystack: '.$exception->getMessage(),
+                ], 502);
+            }
+
+            $latencyMs = round((microtime(true) - $start) * 1000);
+
+            if ($response->failed()) {
+                return response()->json([
+                    'status' => 'error',
+                    'gateway' => 'paystack',
+                    'mode' => $paystackMode,
+                    'latency_ms' => $latencyMs,
+                    'message' => 'Paystack rejected the credentials: '
+                        .($response->json('message') ?? 'HTTP '.$response->status()),
+                ], 502);
+            }
+
+            return response()->json([
+                'status' => 'connected',
+                'gateway' => 'paystack',
+                'mode' => $paystackMode,
+                'latency_ms' => $latencyMs,
+                'message' => "Paystack API reachable with the configured {$paystackMode} key.",
+                'timestamp' => now()->toIso8601String(),
+            ]);
+        }
+
         if ($gateway === 'cash') {
             return response()->json([
                 'status' => 'connected',
