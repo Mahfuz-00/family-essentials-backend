@@ -48,6 +48,7 @@ use App\Http\Controllers\Api\V1\Requests\ItemController;
 use App\Http\Controllers\Api\V1\Requests\RequestActionController;
 use App\Http\Controllers\Api\V1\Requests\RequestBoardController;
 use App\Http\Controllers\Api\V1\Requests\RequestController;
+use App\Http\Controllers\Api\V1\Tenant\HouseholdChatController;
 use App\Http\Controllers\Api\V1\Tenant\InvitationController as TenantInvitationController;
 use App\Http\Controllers\Api\V1\Tenant\MemberController as TenantMemberController;
 use App\Http\Controllers\Api\V1\Tenant\RoleController as TenantRoleController;
@@ -343,6 +344,10 @@ Route::prefix('v1')->group(function () {
 
         // ---- AI Family Dispatcher (Gap G) -------------------------------
         Route::post('requests/parse-nlp', [NlpDispatcherController::class, 'parse']);
+
+        // ---- Household Member Chat (governed by SaaS plan limits) -------
+        Route::get('household/messages', [HouseholdChatController::class, 'index']);
+        Route::post('household/messages', [HouseholdChatController::class, 'store']);
     });
 
     // ---- Provider webhooks (no tenant context; signature verified) ------

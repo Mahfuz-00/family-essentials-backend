@@ -26,12 +26,15 @@ use App\Http\Controllers\Api\V1\Notifications\NotificationLogController;
 use App\Http\Controllers\Api\V1\Pantry\EssentialController;
 use App\Http\Controllers\Api\V1\Places\GeofenceController;
 use App\Http\Controllers\Api\V1\Places\PlaceController;
+use App\Http\Controllers\Api\V1\Billing\InvoiceController;
 use App\Http\Controllers\Api\V1\ProfileController;
 use App\Http\Controllers\Api\V1\Recurring\RecurringRuleController;
 use App\Http\Controllers\Api\V1\Requests\ItemController;
+use App\Http\Controllers\Api\V1\Requests\NlpDispatcherController;
 use App\Http\Controllers\Api\V1\Requests\RequestActionController;
 use App\Http\Controllers\Api\V1\Requests\RequestBoardController;
 use App\Http\Controllers\Api\V1\Requests\RequestController;
+use App\Http\Controllers\Api\V1\Tenant\HouseholdChatController;
 use App\Http\Controllers\Api\V1\Tenant\MemberController as TenantMemberController;
 use App\Http\Controllers\Api\V1\Tenant\QuotaController as TenantQuotaController;
 use App\Http\Controllers\Api\V1\Tenant\TenantController as CurrentTenantController;
@@ -68,6 +71,7 @@ Route::prefix('v1')->group(function () {
 
         Route::middleware(['auth:sanctum', 'abilities:mobile'])->group(function () {
             Route::get('me', [ProfileController::class, 'show']);
+            Route::patch('me', [ProfileController::class, 'update']);
             Route::post('logout', [AuthenticatedSessionController::class, 'destroy']);
 
             Route::patch('voice-consent', [VoiceConsentController::class, 'update']);
@@ -148,10 +152,24 @@ Route::prefix('v1')->group(function () {
         Route::post('essentials/{essential}/restock', [EssentialController::class, 'restock']);
         Route::post('essentials/{essential}/create-errand', [EssentialController::class, 'createErrand']);
 
-        // ---- Voice escalation -------------------------------------------
+        // ---- Voice escalation & direct member calling -------------------
         Route::get('voice-calls/quota', [VoiceCallController::class, 'quota']);
         Route::get('voice-calls', [VoiceCallController::class, 'index']);
         Route::post('requests/{serviceRequest}/voice-escalation', [VoiceCallController::class, 'store']);
+        Route::post('members/{targetMember}/call', [VoiceCallController::class, 'directCall']);
+
+        // ---- Household Member Chat (governed by SaaS plan limits) -------
+        Route::get('household/messages', [HouseholdChatController::class, 'index']);
+        Route::post('household/messages', [HouseholdChatController::class, 'store']);
+
+        // ---- AI Family Dispatcher (NLP errand & chore parsing) ----------
+        Route::post('requests/parse-nlp', [NlpDispatcherController::class, 'parse']);
+
+        // ---- Customer Self-Service Billing & Invoicing ------------------
+        Route::get('billing/payment-methods', [InvoiceController::class, 'paymentMethods']);
+        Route::get('billing/invoices', [InvoiceController::class, 'index']);
+        Route::post('billing/upgrade', [InvoiceController::class, 'simulateUpgrade']);
+        Route::post('billing/cancel', [InvoiceController::class, 'cancelSubscription']);
 
         // ---- Recurring rules --------------------------------------------
         // The app manages the same rules the dashboard does; the daily command
