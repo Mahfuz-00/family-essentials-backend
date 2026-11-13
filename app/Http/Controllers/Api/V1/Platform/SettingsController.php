@@ -387,6 +387,66 @@ class SettingsController extends Controller
             ]);
         }
 
+        if ($gateway === 'bkash') {
+            $appKey = config('services.bkash.app_key');
+            $appSecret = config('services.bkash.app_secret');
+            $username = config('services.bkash.username');
+            $password = config('services.bkash.password');
+
+            if (! is_string($appKey) || $appKey === '' || ! is_string($appSecret) || $appSecret === '') {
+                return response()->json([
+                    'status' => 'unconfigured',
+                    'gateway' => 'bkash',
+                    'message' => 'BKASH_APP_KEY and BKASH_APP_SECRET are not set.',
+                ], 422);
+            }
+
+            $bkashMode = config('services.bkash.mode', 'sandbox') === 'live' ? 'live' : 'sandbox';
+            $base = $bkashMode === 'live'
+                ? 'https://tokenized.pay.bka.sh/v1.2.0-beta'
+                : 'https://tokenized.sandbox.bka.sh/v1.2.0-beta';
+            $start = microtime(true);
+
+            try {
+                $response = Http::withHeaders([
+                    'username' => (string) $username,
+                    'password' => (string) $password,
+                ])->acceptJson()->asJson()->timeout(10)->post(
+                    $base.'/tokenized/checkout/token/grant',
+                    ['app_key' => $appKey, 'app_secret' => $appSecret],
+                );
+            } catch (Throwable $exception) {
+                return response()->json([
+                    'status' => 'error',
+                    'gateway' => 'bkash',
+                    'mode' => $bkashMode,
+                    'message' => 'Could not reach bKash: '.$exception->getMessage(),
+                ], 502);
+            }
+
+            $latencyMs = round((microtime(true) - $start) * 1000);
+
+            if ($response->failed() || ! is_string($response->json('id_token'))) {
+                return response()->json([
+                    'status' => 'error',
+                    'gateway' => 'bkash',
+                    'mode' => $bkashMode,
+                    'latency_ms' => $latencyMs,
+                    'message' => 'bKash rejected the credentials: '
+                        .($response->json('statusMessage') ?? 'HTTP '.$response->status()),
+                ], 502);
+            }
+
+            return response()->json([
+                'status' => 'connected',
+                'gateway' => 'bkash',
+                'mode' => $bkashMode,
+                'latency_ms' => $latencyMs,
+                'message' => "bKash token issued in {$bkashMode} mode.",
+                'timestamp' => now()->toIso8601String(),
+            ]);
+        }
+
         if ($gateway === 'cash') {
             return response()->json([
                 'status' => 'connected',

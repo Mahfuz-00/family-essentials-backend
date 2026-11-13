@@ -6,6 +6,7 @@ use App\Audit\AuditRecorder;
 use App\Billing\PlanPricing;
 use App\Http\Controllers\Controller;
 use App\Models\Invoice;
+use App\Models\PlatformSetting;
 use App\Models\Tenant;
 use App\Payments\PaymentGatewayManager;
 use App\Tenancy\TenantContext;
@@ -29,7 +30,8 @@ class PaymentCheckoutController extends Controller
         $validated = $request->validate([
             'tier' => ['required', 'string', 'in:starter,plus,family,family_plus,enterprise'],
             'billing_period' => ['nullable', 'string', 'in:monthly,annual,yearly'],
-            'gateway' => ['nullable', 'string', 'in:stripe,paypal,razorpay,sslcommerz'],
+            'gateway' => ['nullable', 'string', 'in:stripe,paypal,razorpay,sslcommerz,bkash'],
+            'currency' => ['nullable', 'string', 'size:3'],
             'success_url' => ['nullable', 'url', 'max:2048'],
             'cancel_url' => ['nullable', 'url', 'max:2048'],
         ]);
@@ -62,11 +64,14 @@ class PaymentCheckoutController extends Controller
             ], 422);
         }
 
+        $platformSettings = PlatformSetting::get('payment_gateway', []);
+        $currency = strtoupper($validated['currency'] ?? ($platformSettings['currency'] ?? 'USD'));
+
         $invoice = Invoice::create([
             'tenant_id' => $tenant->id,
             'invoice_number' => Invoice::generateNumber(),
             'amount_cents' => $amountCents,
-            'currency' => 'USD',
+            'currency' => $currency,
             'status' => 'pending',
             'tier' => $tier,
             'billing_period' => $period,

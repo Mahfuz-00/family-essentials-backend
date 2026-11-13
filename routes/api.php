@@ -355,5 +355,5 @@ Route::prefix('v1')->group(function () {
 
     // ---- Provider webhooks (no tenant context; signature verified) ------
     Route::post('webhooks/voice/{provider}', [VoiceWebhookController::class, 'handle']);
-    Route::post('webhooks/payments/{provider}', [PaymentWebhookController::class, 'handle']);
+    Route::match(['get', 'post'], 'webhooks/payments/{provider}', [PaymentWebhookController::class, 'handle']);
 });

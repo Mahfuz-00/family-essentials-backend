@@ -54,6 +54,14 @@ return [
         'mode' => env('SSLCOMMERZ_MODE', 'sandbox'),
     ],
 
+    'bkash' => [
+        'app_key' => env('BKASH_APP_KEY'),
+        'app_secret' => env('BKASH_APP_SECRET'),
+        'username' => env('BKASH_USERNAME'),
+        'password' => env('BKASH_PASSWORD'),
+        'mode' => env('BKASH_MODE', 'sandbox'),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),
