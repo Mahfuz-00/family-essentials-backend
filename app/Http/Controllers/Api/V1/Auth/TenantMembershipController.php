@@ -24,6 +24,7 @@ class TenantMembershipController extends Controller
             'data' => $memberships->map(fn (TenantUser $membership): array => [
                 'tenant' => new TenantResource($membership->tenant),
                 'role' => $membership->role,
+                'role_label' => $membership->role_label,
                 'status' => $membership->status,
                 'is_active' => (int) $membership->tenant_id === (int) $user->active_tenant_id,
             ])->values(),

@@ -36,6 +36,8 @@ class RequestWorkflow
             'item_id' => $attributes['item_id'] ?? null,
             'title' => $attributes['title'],
             'quantity' => $attributes['quantity'] ?? null,
+            'quantity_got' => $attributes['quantity_got'] ?? null,
+            'items' => $attributes['items'] ?? [],
             'notes' => $attributes['notes'] ?? null,
             'category' => $attributes['category'] ?? null,
             'priority' => $attributes['priority'] ?? RequestPriority::Normal,
@@ -130,14 +132,29 @@ class RequestWorkflow
         return $this->finish($request);
     }
 
-    public function complete(ServiceRequest $request, User $by): ServiceRequest
+    public function complete(ServiceRequest $request, User $by, array $attributes = []): ServiceRequest
     {
         $this->assertOpen($request);
 
-        $request->forceFill([
+        $updates = [
             'status' => RequestStatus::Completed,
             'completed_at' => Carbon::now(),
-        ])->save();
+        ];
+
+        if (array_key_exists('quantity_got', $attributes)) {
+            $updates['quantity_got'] = $attributes['quantity_got'];
+        }
+        if (array_key_exists('items', $attributes) && is_array($attributes['items'])) {
+            $updates['items'] = $attributes['items'];
+        }
+        if (isset($attributes['amount_minor']) && $attributes['amount_minor'] !== null) {
+            $updates['amount_minor'] = (int) $attributes['amount_minor'];
+        }
+        if (isset($attributes['ledger_id']) && $attributes['ledger_id'] !== null) {
+            $updates['ledger_id'] = (int) $attributes['ledger_id'];
+        }
+
+        $request->forceFill($updates)->save();
 
         $this->record($request, (int) ($request->assignee_id ?? $by->getKey()), $by, AssignmentAction::Completed);
 

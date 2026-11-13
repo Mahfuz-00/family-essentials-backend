@@ -16,10 +16,22 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * has a membership row for, so `Ledger::query()` is already the list of ledgers
  * the caller belongs to.
  */
-#[Fillable(['name', 'owner_id', 'currency'])]
+#[Fillable(['tenant_id', 'name', 'owner_id', 'currency', 'monthly_budget_minor', 'weekly_budget_minor', 'yearly_budget_minor'])]
 class Ledger extends Model
 {
     use BelongsToTenant;
+
+    /**
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return [
+            'monthly_budget_minor' => 'integer',
+            'weekly_budget_minor' => 'integer',
+            'yearly_budget_minor' => 'integer',
+        ];
+    }
 
     public function owner(): BelongsTo
     {

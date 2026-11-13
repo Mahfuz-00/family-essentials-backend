@@ -36,7 +36,7 @@ trait AuthorizesTenantAdmin
         abort_unless(
             $request->user()?->can('manageRoles', TenantUser::class) === true,
             403,
-            'Only the primary tenant administrator can change roles or remove members.'
+            'Only the primary household administrator can change roles or remove members.'
         );
     }
 

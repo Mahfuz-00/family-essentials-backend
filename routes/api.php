@@ -13,6 +13,11 @@ use App\Http\Controllers\Api\V1\Notifications\DeviceTokenController;
 use App\Http\Controllers\Api\V1\Notifications\LocationNotificationPreferenceController;
 use App\Http\Controllers\Api\V1\Notifications\NotificationLogController;
 use App\Http\Controllers\Api\V1\Feedback\FeedbackController;
+use App\Http\Controllers\Api\V1\Finances\FinancialAssetController;
+use App\Http\Controllers\Api\V1\Finances\FinancialGoalController;
+use App\Http\Controllers\Api\V1\Finances\FinancialLiabilityController;
+use App\Http\Controllers\Api\V1\Finances\FinancialOverviewController;
+use App\Http\Controllers\Api\V1\Finances\FinancialTaxController;
 use App\Http\Controllers\Api\V1\Ledger\LedgerController;
 use App\Http\Controllers\Api\V1\Ledger\LedgerEntryController;
 use App\Http\Controllers\Api\V1\Ledger\LedgerMemberController;
@@ -285,6 +290,7 @@ Route::prefix('v1')->group(function () {
         Route::get('voice-calls/quota', [VoiceCallController::class, 'quota']);
         Route::get('voice-calls', [VoiceCallController::class, 'index']);
         Route::post('requests/{serviceRequest}/voice-escalation', [VoiceCallController::class, 'store']);
+        Route::post('members/{targetMember}/call', [VoiceCallController::class, 'directCall']);
 
         // ---- Recurring rules --------------------------------------------
         // A rule is turned into a fresh request each cycle by
@@ -300,6 +306,7 @@ Route::prefix('v1')->group(function () {
         // policy. A ledger they are not in is a 404, never a 403.
         Route::get('ledgers', [LedgerController::class, 'index']);
         Route::post('ledgers', [LedgerController::class, 'store']);
+        Route::patch('ledgers/{ledger}', [LedgerController::class, 'update']);
 
         Route::post('ledgers/{ledger}/members', [LedgerMemberController::class, 'store']);
         Route::delete('ledgers/{ledger}/members/{user}', [LedgerMemberController::class, 'destroy']);
@@ -312,6 +319,13 @@ Route::prefix('v1')->group(function () {
         // Optical Receipt Scanning & Expense Categorization (Gap B)
         Route::post('ledger/receipts/scan', [ReceiptScanController::class, 'scan']);
 
+        // ---- Household Wealth, Loans, Goals, Taxes & Investments ---------
+        Route::get('finances/overview', [FinancialOverviewController::class, 'index']);
+        Route::apiResource('finances/goals', FinancialGoalController::class);
+        Route::apiResource('finances/liabilities', FinancialLiabilityController::class);
+        Route::apiResource('finances/assets', FinancialAssetController::class);
+        Route::apiResource('finances/taxes', FinancialTaxController::class);
+
         // ---- Customer Self-Service Billing & Invoicing (Gap F) -----------
         Route::get('billing/payment-methods', [InvoiceController::class, 'paymentMethods']);
         Route::get('billing/invoices', [InvoiceController::class, 'index']);
@@ -320,6 +334,7 @@ Route::prefix('v1')->group(function () {
         Route::post('billing/portal', [InvoiceController::class, 'createPortalSession']);
         Route::post('billing/change-plan-preview', [InvoiceController::class, 'changePlanPreview']);
         Route::post('billing/upgrade', [InvoiceController::class, 'simulateUpgrade']);
+        Route::post('billing/cancel', [InvoiceController::class, 'cancelSubscription']);
         Route::get('billing/refund-policy', [PlatformRefundController::class, 'publicPolicy']);
         Route::post('billing/refund-request', [PlatformRefundController::class, 'submitTenantRefundRequest']);
 

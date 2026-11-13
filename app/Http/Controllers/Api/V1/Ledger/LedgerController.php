@@ -6,6 +6,7 @@ use App\Audit\AuditRecorder;
 use App\Enums\LedgerRole;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Ledgers\StoreLedgerRequest;
+use App\Http\Requests\Ledgers\UpdateLedgerRequest;
 use App\Http\Resources\LedgerResource;
 use App\Ledgers\LedgerMembership;
 use App\Models\Ledger;
@@ -64,7 +65,10 @@ class LedgerController extends Controller
             $ledger = Ledger::create([
                 'name' => $request->string('name')->toString(),
                 'owner_id' => $user->getKey(),
-                'currency' => (string) config('ledger.currency'),
+                'currency' => $request->input('currency') ?: (string) (app(\App\Tenancy\TenantContext::class)->tenant()?->settings['currency'] ?? config('ledger.currency', 'USD')),
+                'monthly_budget_minor' => $request->input('monthly_budget_minor'),
+                'weekly_budget_minor' => $request->input('weekly_budget_minor'),
+                'yearly_budget_minor' => $request->input('yearly_budget_minor'),
             ]);
 
             $this->members->put($ledger, $user, LedgerRole::Owner);
@@ -76,11 +80,40 @@ class LedgerController extends Controller
             'ledger_id' => (int) $ledger->getKey(),
             'name' => $ledger->name,
             'currency' => $ledger->currency,
+            'monthly_budget_minor' => $ledger->monthly_budget_minor,
+            'weekly_budget_minor' => $ledger->weekly_budget_minor,
+            'yearly_budget_minor' => $ledger->yearly_budget_minor,
         ]);
 
         $ledger->setAttribute('my_role', LedgerRole::Owner);
         $ledger->setAttribute('member_count', 1);
 
         return (new LedgerResource($ledger->load('owner')))->response()->setStatusCode(201);
+    }
+
+    /**
+     * Update ledger properties, such as name and budget limits.
+     */
+    public function update(UpdateLedgerRequest $request, Ledger $ledger): JsonResponse
+    {
+        $this->authorize('update', $ledger);
+
+        $ledger->update($request->validated());
+
+        $this->audit->record('ledger.updated', [
+            'ledger_id' => (int) $ledger->getKey(),
+            'name' => $ledger->name,
+            'monthly_budget_minor' => $ledger->monthly_budget_minor,
+            'weekly_budget_minor' => $ledger->weekly_budget_minor,
+            'yearly_budget_minor' => $ledger->yearly_budget_minor,
+        ]);
+
+        $role = $this->members->roleFor($ledger, $request->user());
+        $count = $this->members->memberCounts([(int) $ledger->getKey()])[(int) $ledger->getKey()] ?? 1;
+
+        $ledger->setAttribute('my_role', $role);
+        $ledger->setAttribute('member_count', $count);
+
+        return (new LedgerResource($ledger->load('owner')))->response();
     }
 }

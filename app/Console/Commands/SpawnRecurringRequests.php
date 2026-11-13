@@ -148,6 +148,7 @@ class SpawnRecurringRequests extends Command
         $attributes = [
             'title' => $rule->title,
             'quantity' => $rule->quantity,
+            'items' => $rule->items ?? [],
             'notes' => $rule->notes,
             'category' => $rule->category,
             'priority' => $rule->priority,

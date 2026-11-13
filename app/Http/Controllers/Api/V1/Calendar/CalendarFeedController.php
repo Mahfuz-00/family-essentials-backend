@@ -68,7 +68,7 @@ class CalendarFeedController extends Controller
 
         $ics = "BEGIN:VCALENDAR\r\n";
         $ics .= "VERSION:2.0\r\n";
-        $ics .= "PRODID:-//FairShare//Family Essentials Calendar//EN\r\n";
+        $ics .= "PRODID:-//FairShare//FairShare Calendar//EN\r\n";
         $ics .= "CALSCALE:GREGORIAN\r\n";
         $ics .= "METHOD:PUBLISH\r\n";
         $ics .= "X-WR-CALNAME:{$calendarName}\r\n";

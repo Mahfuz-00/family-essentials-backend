@@ -18,6 +18,10 @@ class StoreLedgerRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:120'],
+            'currency' => ['nullable', 'string', 'size:3'],
+            'monthly_budget_minor' => ['nullable', 'integer', 'min:0'],
+            'weekly_budget_minor' => ['nullable', 'integer', 'min:0'],
+            'yearly_budget_minor' => ['nullable', 'integer', 'min:0'],
         ];
     }
 }

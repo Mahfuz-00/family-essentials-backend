@@ -14,6 +14,10 @@ use App\Ledgers\LedgerMembership;
 use App\Models\DeviceToken;
 use App\Models\Essential;
 use App\Models\FeedbackReport;
+use App\Models\FinancialAsset;
+use App\Models\FinancialGoal;
+use App\Models\FinancialLiability;
+use App\Models\FinancialTax;
 use App\Models\Item;
 use App\Models\Ledger;
 use App\Models\LedgerEntry;
@@ -224,65 +228,253 @@ class DemoDataSeeder extends Seeder
             'notes' => 'Any weekday morning works.',
         ]);
 
-        // Pantry: two due (one by safety stock, one by cadence), one healthy,
-        // one inactive.
-        $this->essential('Milk', 'dairy', 'Whole Foods Market', 3, 1, 0, Carbon::now()->subDays(2));
-        $this->essential('Bread', 'bakery', 'Whole Foods Market', 2, 1, 1, Carbon::now()->subDays(3));
-        $this->essential('Coffee beans', 'pantry', 'Whole Foods Market', 14, 1, 4, Carbon::now()->subDays(2));
-        $this->essential('Bin liners', 'home', 'Corner Shop', 30, 0, 0, Carbon::now()->subDays(40));
-        $this->essential('Dish soap', 'cleaning', 'Corner Shop', 21, 1, 2, Carbon::now()->subDays(5), active: false);
+        // Pantry: rich essentials covering all household grocery & domestic categories
+        // with realistic stock levels, reorder points, unit pricing, and spend records.
+        $this->essential('Whole Organic Milk', 'dairy_eggs', 'Whole Foods Market', 7, 2, 1, Carbon::now()->subDays(2), true, 450, 900, 3600, '1 gal');
+        $this->essential('Farm Fresh Free-Range Eggs', 'dairy_eggs', 'Whole Foods Market', 7, 2, 2, Carbon::now()->subDays(3), true, 550, 550, 4400, '12 count');
+        $this->essential('Greek Whole Milk Yogurt', 'dairy_eggs', 'Whole Foods Market', 10, 1, 3, Carbon::now()->subDays(4), true, 600, 600, 3000, '32 oz');
+        $this->essential('Kerrygold Salted Butter', 'dairy_eggs', 'Whole Foods Market', 21, 1, 2, Carbon::now()->subDays(8), true, 480, 960, 2400, '8 oz');
+
+        $this->essential('Artisanal Sourdough Bread', 'bakery', 'Whole Foods Market', 4, 1, 0, Carbon::now()->subDays(4), true, 650, 650, 3900, '1 loaf');
+        $this->essential('Whole Wheat Brioche Buns', 'bakery', 'Whole Foods Market', 7, 1, 2, Carbon::now()->subDays(2), true, 420, 420, 1680, '6 pack');
+
+        $this->essential('Organic Cavendish Bananas', 'produce', 'Whole Foods Market', 5, 2, 1, Carbon::now()->subDays(3), true, 280, 280, 1960, '1 bunch');
+        $this->essential('Hass Avocados (Bag of 4)', 'produce', 'Whole Foods Market', 6, 1, 0, Carbon::now()->subDays(5), true, 499, 499, 3992, '4 pack');
+        $this->essential('Baby Spinach Greens', 'produce', 'Whole Foods Market', 5, 1, 2, Carbon::now()->subDays(1), true, 399, 399, 2394, '16 oz');
+        $this->essential('Sweet Vine Tomatoes', 'produce', 'Whole Foods Market', 7, 2, 3, Carbon::now()->subDays(2), true, 349, 698, 2094, '1 lb');
+
+        $this->essential('Organic Chicken Breasts', 'meat_seafood', 'Whole Foods Market', 7, 2, 1, Carbon::now()->subDays(4), true, 1450, 2900, 5800, '2 lbs');
+        $this->essential('Atlantic Wild Salmon Fillet', 'meat_seafood', 'Whole Foods Market', 5, 1, 0, Carbon::now()->subDays(5), true, 1899, 1899, 7596, '1.5 lbs');
+        $this->essential('Lean Ground Beef (85/15)', 'meat_seafood', 'Whole Foods Market', 7, 2, 3, Carbon::now()->subDays(2), true, 799, 1598, 4794, '1 lb');
+
+        $this->essential('Extra Virgin Olive Oil', 'pantry_staples', 'Whole Foods Market', 30, 1, 2, Carbon::now()->subDays(15), true, 1650, 1650, 4950, '750 ml');
+        $this->essential('Organic Jasmine Rice', 'pantry_staples', 'Whole Foods Market', 45, 1, 1, Carbon::now()->subDays(20), true, 1100, 1100, 3300, '5 lbs');
+        $this->essential('Bronze-Cut Pasta Penne', 'pantry_staples', 'Whole Foods Market', 20, 2, 4, Carbon::now()->subDays(10), true, 299, 598, 1794, '1 lb');
+
+        $this->essential('Dark Roast Coffee Beans', 'beverages', 'Whole Foods Market', 14, 1, 2, Carbon::now()->subDays(5), true, 1400, 1400, 8400, '12 oz');
+        $this->essential('Cold-Pressed Orange Juice', 'beverages', 'Whole Foods Market', 6, 1, 0, Carbon::now()->subDays(6), true, 599, 599, 3594, '52 oz');
+        $this->essential('Sparkling Mineral Water', 'beverages', 'Whole Foods Market', 10, 2, 4, Carbon::now()->subDays(3), true, 750, 1500, 4500, '12 cans');
+
+        $this->essential('Roasted & Salted Almonds', 'snacks', 'Whole Foods Market', 20, 1, 2, Carbon::now()->subDays(10), true, 899, 899, 3596, '16 oz');
+        $this->essential('Organic Tortilla Chips', 'snacks', 'Whole Foods Market', 10, 1, 1, Carbon::now()->subDays(4), true, 429, 429, 2574, '14 oz');
+
+        $this->essential('Eco Concentrated Dish Soap', 'household_cleaning', 'Corner Shop', 21, 1, 1, Carbon::now()->subDays(12), true, 380, 380, 1900, '16 oz');
+        $this->essential('Heavy-Duty Drawstring Bin Liners', 'household_cleaning', 'Corner Shop', 30, 1, 0, Carbon::now()->subDays(32), true, 1250, 1250, 3750, '40 count');
+        $this->essential('Multi-Surface Plant Cleanser', 'household_cleaning', 'Corner Shop', 30, 1, 2, Carbon::now()->subDays(15), true, 499, 499, 2495, '32 oz');
+        $this->essential('Eco Laundry Detergent Sheets', 'household_cleaning', 'Corner Shop', 30, 1, 3, Carbon::now()->subDays(14), true, 1499, 1499, 4497, '60 loads');
+
+        $this->essential('Moisturizing Shea Body Wash', 'personal_care', 'Corner Shop', 30, 1, 2, Carbon::now()->subDays(20), true, 749, 749, 2247, '18 oz');
+        $this->essential('Natural Mint Toothpaste', 'personal_care', 'Corner Shop', 25, 1, 1, Carbon::now()->subDays(18), true, 699, 699, 2796, '2 pack');
+
+        $this->essential('Adult Multivitamin Gummies', 'medicine', 'Corner Shop', 45, 1, 2, Carbon::now()->subDays(25), true, 1599, 1599, 4797, '90 count');
+        $this->essential('Ibuprofen Tablets 200mg', 'medicine', 'Corner Shop', 60, 1, 1, Carbon::now()->subDays(40), true, 849, 849, 2547, '100 count');
 
         $this->device($admin, 'ios', 'demo-ios-tanvir');
         $this->device($member, 'android', 'demo-android-sarah');
 
         // Money: one ledger the admin owns, the other adult in it as a
-        // summary-only member, and entries across two months and two categories
-        // so /money has a breakdown rather than an empty state.
+        // summary-only member, and entries across two months and multiple categories
+        // so the expense tracker and ledger breakdown are rich with data.
         $ledger = $this->ledger($admin, 'Household budget');
+        $ledger->forceFill([
+            'monthly_budget_minor' => 250_000_00,
+            'weekly_budget_minor' => 60_000_00,
+            'yearly_budget_minor' => 300_000_00,
+        ])->save();
         $this->ledgerMembership($ledger, $admin, LedgerRole::Owner);
         $this->ledgerMembership($ledger, $member, LedgerRole::Summary);
 
         $this->ledgerEntry($ledger, $admin, [
-            'description' => 'Big monthly shop',
+            'description' => 'Monthly Apartment Rent',
+            'category' => 'rent',
+            'amount_minor' => 120_000_00,
+            'occurred_on' => Carbon::today()->startOfMonth(),
+        ]);
+
+        $this->ledgerEntry($ledger, $admin, [
+            'description' => 'Electric & Gas Utility Bill',
+            'category' => 'utility_bill',
+            'amount_minor' => 18_500_00,
+            'occurred_on' => Carbon::today()->startOfMonth()->addDays(5),
+        ]);
+
+        $this->ledgerEntry($ledger, $admin, [
+            'description' => 'Big Monthly Grocery Shop',
             'category' => 'grocery',
-            'amount_minor' => 512_000,
+            'amount_minor' => 51_200_00,
             'occurred_on' => Carbon::today()->subMonthNoOverflow()->startOfMonth()->addDays(9),
         ]);
 
         $this->ledgerEntry($ledger, $member, [
-            'description' => 'Utilities top-up',
-            'category' => 'household',
-            'amount_minor' => 180_000,
+            'description' => 'Internet & Mobile Plan',
+            'category' => 'utility_bill',
+            'amount_minor' => 12_000_00,
             'occurred_on' => Carbon::today()->subMonthNoOverflow()->endOfMonth(),
         ]);
 
         $this->ledgerEntry($ledger, $admin, [
-            'description' => 'Corner shop top-up',
-            'category' => 'grocery',
-            'amount_minor' => 68_500,
+            'description' => 'Pharmacy & Prescription Copay',
+            'category' => 'healthcare',
+            'amount_minor' => 6_850_00,
             'occurred_on' => Carbon::today()->startOfMonth(),
         ]);
 
         $this->ledgerEntry($ledger, $member, [
-            'description' => 'Cleaning supplies',
+            'description' => 'Household Cleaning Supplies',
             'category' => 'household',
-            'amount_minor' => 94_000,
+            'amount_minor' => 9_400_00,
             'occurred_on' => Carbon::today()->startOfMonth(),
         ]);
 
         $this->ledgerEntry($ledger, $admin, [
-            'description' => 'Weekly shop',
+            'description' => 'Weekly Fresh Grocery Run',
             'category' => 'grocery',
-            'amount_minor' => 245_000,
+            'amount_minor' => 24_500_00,
             'occurred_on' => Carbon::today(),
         ]);
 
         $this->ledgerEntry($ledger, $member, [
-            'description' => 'Household contribution',
-            'amount_minor' => 600_000,
+            'description' => 'Monthly Household Salary Contribution',
+            'amount_minor' => 350_000_00,
             'direction' => LedgerEntryDirection::Income,
             'category' => null,
             'occurred_on' => Carbon::today()->startOfMonth(),
+        ]);
+
+        // Multi-item Request with dual quantities (asked vs got)
+        $this->request($admin, [
+            'title' => 'Weekly Organic Grocery Run',
+            'priority' => RequestPriority::Normal,
+            'status' => RequestStatus::InProgress,
+            'place_id' => $shop->id,
+            'assignee_id' => $admin->id,
+            'due_at' => Carbon::now()->addHours(3),
+            'items' => [
+                ['name' => 'Organic Whole Milk', 'quantity_asked' => '2 gal', 'quantity_got' => '2 gal', 'is_picked' => true],
+                ['name' => 'Free-range Eggs', 'quantity_asked' => '1 dozen', 'quantity_got' => '1 dozen', 'is_picked' => true],
+                ['name' => 'Sourdough Bread', 'quantity_asked' => '1 loaf', 'quantity_got' => '1 loaf', 'is_picked' => true],
+                ['name' => 'Organic Bananas', 'quantity_asked' => '1 bunch', 'quantity_got' => '1 bunch', 'is_picked' => true],
+            ],
+            'quantity' => '4 items',
+            'quantity_got' => '4 of 4 items picked',
+            'amount_minor' => 4_850_00,
+            'ledger_id' => $ledger->id,
+        ]);
+
+        // Financial Goals
+        $this->financialGoal($admin, [
+            'name' => 'Emergency Rainy Day Fund',
+            'category' => 'savings',
+            'target_amount_minor' => 100_000_00,
+            'current_amount_minor' => 45_000_00,
+            'currency' => 'USD',
+            'target_date' => Carbon::today()->addMonths(8),
+            'status' => 'active',
+            'notes' => '6 months of living expenses safely deposited in high-yield account',
+        ]);
+
+        $this->financialGoal($admin, [
+            'name' => 'Summer Family Beach Holiday',
+            'category' => 'vacation',
+            'target_amount_minor' => 35_000_00,
+            'current_amount_minor' => 20_000_00,
+            'currency' => 'USD',
+            'target_date' => Carbon::today()->addMonths(4),
+            'status' => 'active',
+            'notes' => 'Flights and coastal accommodation',
+        ]);
+
+        $this->financialGoal($admin, [
+            'name' => 'Home Solar & Energy Battery',
+            'category' => 'home_improvement',
+            'target_amount_minor' => 150_000_00,
+            'current_amount_minor' => 32_000_00,
+            'currency' => 'USD',
+            'target_date' => Carbon::today()->addMonths(14),
+            'status' => 'active',
+            'notes' => 'Roof solar array installation',
+        ]);
+
+        // Financial Liabilities (Mortgage, Vehicle Loan)
+        $this->financialLiability($admin, [
+            'name' => 'Primary Home Mortgage',
+            'type' => 'mortgage',
+            'lender' => 'Chase Home Finance',
+            'principal_amount_minor' => 340_000_00,
+            'remaining_balance_minor' => 285_000_00,
+            'monthly_payment_minor' => 18_500_00,
+            'interest_rate_bps' => 415,
+            'due_day_of_month' => 1,
+            'currency' => 'USD',
+            'status' => 'active',
+            'notes' => '30-year fixed rate mortgage',
+        ]);
+
+        $this->financialLiability($admin, [
+            'name' => 'Family Vehicle Loan',
+            'type' => 'loan',
+            'lender' => 'Ally Auto',
+            'principal_amount_minor' => 28_000_00,
+            'remaining_balance_minor' => 14_200_00,
+            'monthly_payment_minor' => 3_850_00,
+            'interest_rate_bps' => 375,
+            'due_day_of_month' => 15,
+            'currency' => 'USD',
+            'status' => 'active',
+        ]);
+
+        // Financial Assets (Real Estate, Cash, Investments)
+        $this->financialAsset($admin, [
+            'name' => 'Primary Family Residence',
+            'type' => 'real_estate',
+            'institution' => 'Zillow Valuation',
+            'balance_minor' => 460_000_00,
+            'currency' => 'USD',
+            'notes' => 'Estimated real estate market valuation',
+        ]);
+
+        $this->financialAsset($admin, [
+            'name' => 'High-Yield Savings Account',
+            'type' => 'cash',
+            'institution' => 'Marcus by Goldman Sachs',
+            'balance_minor' => 28_500_00,
+            'contribution_monthly_minor' => 5_000_00,
+            'return_rate_bps' => 450,
+            'currency' => 'USD',
+            'notes' => '4.5% APY compounding monthly',
+        ]);
+
+        $this->financialAsset($admin, [
+            'name' => 'S&P 500 Index Portfolio',
+            'type' => 'investment',
+            'institution' => 'Vanguard (VFIAX)',
+            'balance_minor' => 74_200_00,
+            'contribution_monthly_minor' => 6_000_00,
+            'return_rate_bps' => 850,
+            'currency' => 'USD',
+        ]);
+
+        // Financial Taxes
+        $this->financialTax($admin, [
+            'name' => 'Estimated Household Income Tax 2026',
+            'type' => 'income_tax',
+            'tax_year' => 2026,
+            'amount_minor' => 34_000_00,
+            'due_date' => Carbon::today()->addMonths(2),
+            'status' => 'pending',
+            'currency' => 'USD',
+            'notes' => 'Q4 estimated federal payment',
+        ]);
+
+        $this->financialTax($admin, [
+            'name' => 'Municipal Property Tax',
+            'type' => 'property_tax',
+            'tax_year' => 2026,
+            'amount_minor' => 18_500_00,
+            'due_date' => Carbon::today()->subMonths(1),
+            'status' => 'paid',
+            'paid_at' => Carbon::today()->subMonths(1),
+            'currency' => 'USD',
         ]);
 
         // Chores that come round on their own: a weekly one that reminds on
@@ -311,6 +503,58 @@ class DemoDataSeeder extends Seeder
             'notes' => 'Water, gas and internet in one payment.',
             'assignee_id' => $admin->id,
             'amount_minor' => 320_000,
+            'ledger_id' => $ledger->id,
+        ]);
+
+        $this->recurringRule($admin, [
+            'title' => 'Fiber Gigabit Home Internet',
+            'cadence' => Cadence::Monthly,
+            'day_of_month' => 5,
+            'next_run_on' => Carbon::today()->addDays(5)->toDateString(),
+            'category' => 'Utilities & Bills',
+            'priority' => RequestPriority::High,
+            'notes' => 'High-speed fiber connectivity for remote work and home devices.',
+            'assignee_id' => $admin->id,
+            'amount_minor' => 8_500,
+            'ledger_id' => $ledger->id,
+        ]);
+
+        $this->recurringRule($admin, [
+            'title' => 'Family Streaming & Media Bundle',
+            'cadence' => Cadence::Monthly,
+            'day_of_month' => 12,
+            'next_run_on' => Carbon::today()->addDays(12)->toDateString(),
+            'category' => 'Subscriptions & Media',
+            'priority' => RequestPriority::Normal,
+            'notes' => 'Shared Netflix 4K, Spotify Family, and cloud backup storage.',
+            'assignee_id' => $admin->id,
+            'amount_minor' => 2_499,
+            'ledger_id' => $ledger->id,
+        ]);
+
+        $this->recurringRule($admin, [
+            'title' => 'Household Homeowners Insurance',
+            'cadence' => Cadence::Monthly,
+            'day_of_month' => 1,
+            'next_run_on' => Carbon::today()->addDays(18)->toDateString(),
+            'category' => 'Healthcare & Insurance',
+            'priority' => RequestPriority::High,
+            'notes' => 'Comprehensive hazard and liability property coverage.',
+            'assignee_id' => $admin->id,
+            'amount_minor' => 14_500,
+            'ledger_id' => $ledger->id,
+        ]);
+
+        $this->recurringRule($admin, [
+            'title' => 'Local Fitness Club Family Pass',
+            'cadence' => Cadence::Monthly,
+            'day_of_month' => 15,
+            'next_run_on' => Carbon::today()->addDays(15)->toDateString(),
+            'category' => 'Subscriptions & Media',
+            'priority' => RequestPriority::Normal,
+            'notes' => 'Gym, pool access, and weekend tennis courts.',
+            'assignee_id' => $member->id,
+            'amount_minor' => 7_500,
             'ledger_id' => $ledger->id,
         ]);
 
@@ -502,10 +746,28 @@ class DemoDataSeeder extends Seeder
         int $stockLevel,
         Carbon $lastRestocked,
         bool $active = true,
+        int $unitPriceMinor = 0,
+        int $lastSpentMinor = 0,
+        int $totalSpentMinor = 0,
+        string $packSize = 'items',
     ): Essential {
         $existing = Essential::query()->where('name', $name)->first();
 
         if ($existing !== null) {
+            $existing->forceFill([
+                'category' => $category,
+                'default_store' => $store,
+                'pack_size' => $packSize,
+                'cadence_days' => $cadenceDays,
+                'threshold' => $threshold,
+                'stock_level' => $stockLevel,
+                'unit_price_minor' => $unitPriceMinor,
+                'last_spent_minor' => $lastSpentMinor,
+                'total_spent_minor' => $totalSpentMinor,
+                'last_restocked_at' => $lastRestocked,
+                'is_active' => $active,
+            ])->save();
+
             return $existing;
         }
 
@@ -516,9 +778,13 @@ class DemoDataSeeder extends Seeder
             'name' => $name,
             'category' => $category,
             'default_store' => $store,
+            'pack_size' => $packSize,
             'cadence_days' => $cadenceDays,
             'threshold' => $threshold,
             'stock_level' => $stockLevel,
+            'unit_price_minor' => $unitPriceMinor,
+            'last_spent_minor' => $lastSpentMinor,
+            'total_spent_minor' => $totalSpentMinor,
             'last_restocked_at' => $lastRestocked,
             'is_active' => $active,
         ])->save();
@@ -645,5 +911,76 @@ class DemoDataSeeder extends Seeder
         ], $attributes))->save();
 
         return $rule;
+    }
+
+    private function financialGoal(User $creator, array $attributes): FinancialGoal
+    {
+        $existing = FinancialGoal::query()->where('name', $attributes['name'])->first();
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        $goal = new FinancialGoal;
+        $goal->forceFill(array_merge([
+            'tenant_id' => $this->tenantId,
+            'created_by_id' => $creator->id,
+            'currency' => 'USD',
+            'status' => 'active',
+        ], $attributes))->save();
+
+        return $goal;
+    }
+
+    private function financialLiability(User $creator, array $attributes): FinancialLiability
+    {
+        $existing = FinancialLiability::query()->where('name', $attributes['name'])->first();
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        $liability = new FinancialLiability;
+        $liability->forceFill(array_merge([
+            'tenant_id' => $this->tenantId,
+            'created_by_id' => $creator->id,
+            'currency' => 'USD',
+            'status' => 'active',
+        ], $attributes))->save();
+
+        return $liability;
+    }
+
+    private function financialAsset(User $creator, array $attributes): FinancialAsset
+    {
+        $existing = FinancialAsset::query()->where('name', $attributes['name'])->first();
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        $asset = new FinancialAsset;
+        $asset->forceFill(array_merge([
+            'tenant_id' => $this->tenantId,
+            'created_by_id' => $creator->id,
+            'currency' => 'USD',
+        ], $attributes))->save();
+
+        return $asset;
+    }
+
+    private function financialTax(User $creator, array $attributes): FinancialTax
+    {
+        $existing = FinancialTax::query()->where('name', $attributes['name'])->first();
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        $tax = new FinancialTax;
+        $tax->forceFill(array_merge([
+            'tenant_id' => $this->tenantId,
+            'created_by_id' => $creator->id,
+            'currency' => 'USD',
+            'status' => 'pending',
+        ], $attributes))->save();
+
+        return $tax;
     }
 }

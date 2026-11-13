@@ -25,6 +25,12 @@ class UpdateRequestRequest extends FormRequest
         return [
             'title' => ['sometimes', 'string', 'max:255'],
             'quantity' => ['nullable', 'string', 'max:64'],
+            'quantity_got' => ['nullable', 'string', 'max:64'],
+            'items' => ['nullable', 'array'],
+            'items.*.name' => ['required_with:items', 'string', 'max:255'],
+            'items.*.quantity_asked' => ['nullable', 'string', 'max:64'],
+            'items.*.quantity_got' => ['nullable', 'string', 'max:64'],
+            'items.*.is_picked' => ['nullable', 'boolean'],
             'notes' => ['nullable', 'string', 'max:2000'],
             'category' => ['nullable', 'string', 'max:64'],
             'priority' => ['sometimes', Rule::enum(RequestPriority::class)],

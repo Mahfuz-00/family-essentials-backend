@@ -86,7 +86,7 @@ class MemberController extends Controller
                 && ! RoleCapabilities::allows('manage_roles', $role)
                 && $this->tenantAdminCount() <= 1,
             422,
-            'A household needs at least one tenant administrator.'
+            'A household needs at least one household administrator.'
         );
 
         $previous = $membership->role;
@@ -111,7 +111,7 @@ class MemberController extends Controller
         abort_if(
             $membership->canManageMembers() && $this->tenantAdminCount() <= 1,
             422,
-            'A household needs at least one tenant administrator.'
+            'A household needs at least one household administrator.'
         );
 
         $membership->delete();

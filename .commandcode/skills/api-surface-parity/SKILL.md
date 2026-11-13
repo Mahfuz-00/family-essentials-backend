@@ -13,7 +13,19 @@ description: How the two API surfaces (/api for the dashboard, /mobile for the a
 | Client | `Frontend/` (React) | `Mobile app/` (Flutter) |
 | Route file | `Backend/routes/api.php` | `Backend/routes/mobile.php` |
 | Platform admin (`/platform/*`) | yes | **no** — not registered at all |
-| Invitation management | yes | **no** |
+| Invitation management | yes | **no** (accept only) |
+| Tenant export, roles catalogue | yes | **no** |
+| Member role changes / removals | yes | **no** (read members only) |
+| Profile edits (`PATCH me`, password) | yes | **no** |
+| Billing / invoices / portal / refund request | yes | **no** |
+| Calendar feed URL | yes | **no** |
+| Marketing leads / announcements | yes | **no** |
+| NLP dispatcher (`requests/parse-nlp`) | yes | **no** |
+
+Both surfaces **do** carry: auth and memberships, tenant read/update, members read,
+quotas, feedback, items, requests and all actions, device tokens, notifications, places and
+geofences, essentials, voice escalation, recurring rules, ledgers (including receipt scan),
+and provider webhooks.
 
 Login mints the ability from the prefix it arrived on, so a token is not replayable across
 surfaces (`AuthenticatedSessionController::abilityFor`). Both surfaces share controllers —
@@ -38,6 +50,8 @@ a fix in a controller fixes both, and a **contract change breaks both**.
 - The platform console stays off the mobile surface. Mobile has no landlord concept.
 - Invitation management stays on the dashboard only; the app can accept an invitation
   (`POST /mobile/v1/auth/invitations/accept`) but not issue one.
+- A change to a shared ledger, request or recurring rule must behave identically for
+  `owner` / `manager` / `summary` on both surfaces — the policy, not the route, decides.
 - Token abilities are checked with `abilities:dashboard` / `abilities:mobile` on every
   authenticated group.
 - `/mobile` requests also pass through the `api` middleware group, so tenant identification
@@ -52,5 +66,5 @@ php artisan route:list --path=mobile/v1  --json | ConvertFrom-Json | Select-Obje
 ```
 
 Compare the two lists. Anything tenant-facing present on one and missing from the other is
-either a deliberate omission (platform, invitations, member role changes) or a bug — say
-which, in writing, when you report.
+either one of the deliberate omissions above or a bug — say which, in writing, in your
+report.

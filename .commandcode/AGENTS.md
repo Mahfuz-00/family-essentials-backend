@@ -2,20 +2,34 @@
 # Backend — Laravel API
 
 `Backend/` is the Laravel 13 API for Family Essentials: two JSON surfaces, a
-multi-tenant PostgreSQL schema with row-level security, and the platform-admin
-console. PHP 8.4, PostgreSQL 16.
+multi-tenant PostgreSQL schema with row-level security, a person-level ledger layer,
+and the platform-admin console. PHP 8.4, PostgreSQL 16.
 
 ## Commands
 
 ```bash
-php artisan serve                                   # API on :8000
-php artisan migrate --database=pgsql_admin            # migrations ONLY as the owner
-php artisan db:seed                                   # demo households (see TESTING.md)
-php artisan test                                      # 170+ tests, three suites
+php artisan serve                                     # API on :8000
+php artisan migrate --database=pgsql_admin             # migrations ONLY as the owner
+php artisan db:seed                                    # demo households (see TESTING.md)
+php artisan schedule:work                              # reminders, recurring, health, backups
+php artisan queue:work                                 # queued work (driver: database)
+php artisan test                                       # ~250 passing, 1 opt-in skip
 php artisan test --testsuite=Unit
 php artisan test --testsuite=Feature
 php artisan test --testsuite=Integration
 php artisan route:list --path=api/v1
+php artisan route:list --path=mobile/v1
+```
+
+Operations commands:
+
+```bash
+php artisan ops:health-probe            # sample health now (and prune old samples)
+php artisan ops:heartbeat               # stamp the scheduler heartbeat
+php artisan backups:run --type=manual   # dump, checksum, then verify
+php artisan backups:verify              # re-checksum unverified backups
+php artisan backups:prune               # retention and interrupted-run cleanup
+php artisan schedule:list               # what runs on its own
 ```
 
 The database is `family_essentials` at runtime and `family_essentials_test` for tests.
@@ -30,13 +44,33 @@ transaction that is rolled back.
 | Tenancy: context, GUCs, provisioner | `app/Tenancy/` |
 | Middleware (`IdentifyTenant`, `RequireTenant`, `BootstrapTenancy`, `EnsurePlatformAdmin`) | `app/Http/Middleware/` |
 | Single mutation point for request status | `app/Requests/RequestWorkflow.php` |
-| Reminders | `app/Reminders/` |
+| Reminders and quiet hours | `app/Reminders/` |
+| Recurring rules (schedule maths) | `app/Recurring/RecurringSchedule.php` |
 | Geofencing | `app/Geo/` |
 | Voice escalation (policy + service + caller adapter) | `app/Voice/` |
+| Household ledgers, membership, expense recording | `app/Ledgers/` |
+| Plan quotas and enforcement | `app/Plans/QuotaService.php`, `config/plans.php` |
 | Audit ledger | `app/Audit/AuditRecorder.php` |
-| Policies | `app/Policies/` |
+| Policies | `app/Policies/` — `LedgerPolicy`, `TenantUserPolicy`, `ServiceRequestPolicy`, `PlacePolicy`, `EssentialPolicy`, `RecurringRulePolicy` |
+| Health reporting and backups | `app/Ops/`, `app/Ops/Backups/` |
+| Notifications (push message, channels) | `app/Notifications/` |
+| Provider seams (SMS, phone) | `app/Services/Sms/`, `app/Services/Phone/` |
+| Queued work | `app/Jobs/DispatchReminder.php` |
+| Scheduled commands | `app/Console/Commands/` |
+| Controllers | `app/Http/Controllers/Api/V1/{Auth,Tenant,Requests,Places,Pantry,Recurring,Ledger,Billing,Feedback,Notifications,Voice,Calendar,Platform}/` |
 | Routes | `routes/api.php` (dashboard), `routes/mobile.php` (mobile) |
 | Tests | `tests/{Unit,Feature,Integration}` — see `TESTING.md` |
+
+## Config is the single source of truth
+
+| File | Declares | Read by |
+|---|---|---|
+| `config/roles.php` | Role tiers and capabilities | `TenantUserPolicy`, `GET /v1/tenant/roles` |
+| `config/plans.php` | Tier keys, seat / place / monthly-request caps | `QuotaService`, `GET /v1/tenant/quotas`, tier validation |
+| `config/voice.php` | Daily call budget, attempt limit, cooldown | `VoiceEscalationPolicy`, escalation screen |
+| `config/ledger.php` | Currency and ledger defaults | Ledger creation |
+| `config/ops.php`, `config/backup.php`, `config/retention.php` | Operational thresholds, paths, retention | Ops console and commands |
+| `config/geofence.php`, `config/location_notifications.php` | Radius, cooldown, notification rules | Geofence evaluation and arrival notifications |
 
 ## Rules that matter here
 
@@ -47,12 +81,25 @@ transaction that is rolled back.
   **no** RLS and need an explicit grant migration.
 - **Fail closed.** Never write code that assumes a tenant context exists; rely on the
   GUC-driven policies so an unset context yields zero rows.
+- **Ledgers are isolated by membership, not only by tenant.** RLS decides which ledgers a
+  user can reach; `LedgerPolicy` decides what they may do (`owner` / `manager` /
+  `summary`). A ledger outside the caller's membership is a 404. There is deliberately no
+  `GET /ledgers/{id}` — name a ledger only through its entries, summary or members.
 - **Route-model binding runs before route middleware**, which is why the platform
   console resolves `{tenant}` explicitly inside the controller with the bypass enabled.
 - **`RequestWorkflow` is the only place request status changes.** Anything that mutates a
   request must go through it so reminders stay in sync.
+- **Plan caps are enforced here, not in the UI.** Check `QuotaService` before seats,
+  places and monthly requests; the dashboard renders the same numbers from
+  `GET /v1/tenant/quotas`.
+- **Billing and refunds are state machines, not deletes.** Invoices flow through the
+  cash-settlement queue (`pending-cash` → approve/reject); refund requests move through
+  their own states. Platform actions are audited.
+- **Receipt OCR is machine-printed English only.** Do not add or imply handwriting or
+  non-English support.
 - **External services sit behind adapters** (`SmsSender`, `PushSender`, `VoiceCaller`,
-  `GeofenceProvider`) chosen by config, so real credentials are a config change.
+  `GeofenceProvider`, `BackupRunner`) chosen by config, so real credentials are a config
+  change and tests fake them.
 - **Authorization belongs in policies**, not inline controller checks. Role rules live in
   `app/Policies/TenantUserPolicy.php` + `config/roles.php`; the Roles API and the UI read
   the same source.
@@ -63,10 +110,16 @@ transaction that is rolled back.
 
 `/api/v1` is the web dashboard (ability `dashboard`); `/mobile/v1` is the Flutter app
 (ability `mobile`). Both share controllers. If you change a shared controller's contract,
-update both route files' expectations and the clients — `Backend/routes/mobile.php`
-intentionally omits platform routes and invitation management.
+update both route files and the clients.
 
-## Prerequisites
+Deliberately **absent from `/mobile`**: the whole `/platform/*` console, tenant export,
+the roles catalogue, invitation management, member role changes/removals, profile edits
+(`PATCH me`, password), billing/invoices/portal, the calendar feed URL, marketing
+endpoints, and the NLP dispatcher. Anything else missing is a parity bug.
 
-If `php` or `composer` is missing, install them (see Laravel Boost guidance in
-`CLAUDE.md`) before attempting any command above.
+## Testing
+
+Layered by scope — `tests/Unit` (pure rules), `tests/Feature` (one endpoint group),
+`tests/Integration` (RLS barrier, cross-tenant isolation, audit ledger, surface split).
+See `TESTING.md` for the database guard, the opt-in real `pg_dump` test, and seeded
+accounts.

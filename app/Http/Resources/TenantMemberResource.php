@@ -22,6 +22,7 @@ class TenantMemberResource extends JsonResource
             'email' => $this->user?->email,
             'phone' => $this->user?->phone,
             'role' => $this->role,
+            'role_label' => $this->role_label,
             'status' => $this->status,
             'joined_at' => $this->joined_at?->toISOString(),
             // Populated by the controller from real device tokens / open requests.

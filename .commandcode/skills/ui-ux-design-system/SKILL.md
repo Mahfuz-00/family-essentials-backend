@@ -6,12 +6,14 @@ description: The authoritative Warm Sage design system for Family Essentials acr
 
 # Family Essentials design system
 
-Authoritative values for the web dashboard, the Flutter app, and the design exports they
-were built from. If a value here disagrees with what you see in the code, the code is
-wrong and should be corrected — not the other way round.
+Authoritative values for the web app, the Flutter app (shipped as **FairShare**), the static
+marketing site and the design exports they were built from. If a value here disagrees with
+what you see in the code, the code is wrong and should be corrected — not the other way
+round.
 
 Canonical sources: `Frontend/src/index.css` (Tailwind v4 `@theme`),
-`Mobile app/lib/core/theme/app_theme.dart`, and the exports in `UI/` and
+`Mobile app/lib/core/theme/app_theme.dart`, `Website/index.html` (the static marketing
+deploy's Tailwind CDN config), and the exports in `UI/` and
 `stitch_cross_platform_dashboard_ui/`.
 
 ## 1. The movement: Soft Tactile SaaS
@@ -23,6 +25,9 @@ Warm, domestic, dependable. Reassuring rather than transactional.
 - Ambient shadows tinted with slate, never pure black.
 - High-legibility type with generous line heights.
 - Zero-stress clarity for people mid-chore or mid-shop, often one-handed.
+
+The public marketing site uses the same language at a larger, calmer scale: warm cream
+sections, white cards, generous whitespace, and no hard-sell visual noise.
 
 ## 2. Theme 1 — "Warm Sage" (default)
 
@@ -92,15 +97,27 @@ it does in the design exports.
   priority pip. Completed items get a strikethrough and muted text.
 - **Bottom sheets** — 24px top corners, a 36x4 drag handle, 24px horizontal padding.
 
-## 6. Screen inventory (from the Stitch specification)
+## 6. Screen inventory
 
-Web dashboard — platform admin: W-PA-01 login, W-PA-02 global analytics, W-PA-03 tenant
-console, W-PA-04 audit explorer. Tenant admin: W-TA-01 auth, W-TA-02 household kanban,
-W-TA-03 members and roles, W-TA-04 places and geofences, W-TA-05 billing.
+**Public marketing (React at `/`, mirrored statically in `Website/`):** P-01 landing,
+P-02 features hub, P-03 feature detail, P-04 solutions hub, P-05 solution detail,
+P-06 pricing, P-07 about, P-08 FAQ, P-09 contact, P-10 refund policy.
 
-Mobile: M-01 splash, M-02 registration and OTP states, M-03 home/today, M-04 quick add,
-M-05 request detail, M-06 shopping mode family, M-07 saved places, M-08 reminder and voice
-settings.
+**Household dashboard:** W-TA-01 auth (login/register/reset/verify email/verify phone),
+W-TA-02 dashboard kanban, W-TA-03 members / roles / invitations, W-TA-04 places and geofence
+console, W-TA-05 billing and invoices, W-TA-06 recurring rules, W-TA-07 money and ledger,
+W-TA-08 escalation, W-TA-09 settings and feedback.
+
+**Landlord console:** W-PA-01 analytics overview, W-PA-02 tenants and tenant detail,
+W-PA-03 billing and cash settlement, W-PA-04 payment gateways, W-PA-05 email configuration,
+W-PA-06 refunds and policy, W-PA-07 marketing and leads, W-PA-08 system settings and admin
+profile, W-PA-09 health and maintenance, W-PA-10 backups, W-PA-11 feedback inbox,
+W-PA-12 audit log.
+
+**Mobile (FairShare):** M-01 splash, M-02 onboarding carousel, M-03 login/register/OTP,
+M-04 today, M-05 quick add, M-06 request detail, M-07 shopping run mode, M-08 receipt scan,
+M-09 saved places, M-10 pantry, M-11 recurring rules, M-12 settings (alert style, consent,
+memberships), M-13 feedback.
 
 ## 7. What not to copy from the exports
 

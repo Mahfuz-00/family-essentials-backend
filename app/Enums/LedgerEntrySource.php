@@ -9,4 +9,7 @@ enum LedgerEntrySource: string
 
     /** Written by the completion bridge when a request carries a ledger. */
     case Request = 'request';
+
+    /** Spawned by a recurring expense rule. */
+    case Recurring = 'recurring';
 }

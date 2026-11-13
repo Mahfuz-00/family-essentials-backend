@@ -138,18 +138,35 @@ class RefundController extends Controller
         $chargeDate = $invoice->paid_at ?? $invoice->created_at;
         $daysElapsed = max(0, (int) $chargeDate->diffInDays(now()));
 
+        $allowPartial = (bool) ($policy['allow_partial_after_window'] ?? false);
         if ($isAnnual) {
             $window = (int) ($policy['annual_refund_window_days'] ?? 30);
-            $eligible = $daysElapsed <= $window;
-            $percent = $eligible ? (int) ($policy['annual_refund_percent'] ?? 80) : 0;
+            if ($daysElapsed <= 15 && $allowPartial) {
+                $percent = 100;
+            } elseif ($daysElapsed <= $window) {
+                $percent = (int) ($policy['annual_refund_percent'] ?? 80);
+            } elseif ($allowPartial && $daysElapsed <= 90) {
+                $percent = 50;
+            } elseif ($allowPartial && $daysElapsed <= 180) {
+                $percent = 25;
+            } else {
+                $percent = 0;
+            }
+            $eligible = $percent > 0;
             $amountCents = (int) round(($invoice->amount_cents * $percent) / 100);
             $reason = $eligible
-                ? "Eligible for {$percent}% refund within first-month annual window ({$daysElapsed} of {$window} days elapsed)."
+                ? "Eligible for {$percent}% refund within annual window ({$daysElapsed} of {$window} days elapsed)."
                 : "Ineligible: Annual refund window of {$window} days has expired ({$daysElapsed} days elapsed).";
         } else {
             $window = (int) ($policy['monthly_refund_window_days'] ?? 7);
-            $eligible = $daysElapsed <= $window;
-            $percent = $eligible ? (int) ($policy['monthly_refund_percent'] ?? 100) : 0;
+            if ($daysElapsed <= $window) {
+                $percent = (int) ($policy['monthly_refund_percent'] ?? 100);
+            } elseif ($allowPartial && $daysElapsed <= 20) {
+                $percent = 50;
+            } else {
+                $percent = 0;
+            }
+            $eligible = $percent > 0;
             $amountCents = (int) round(($invoice->amount_cents * $percent) / 100);
             $reason = $eligible
                 ? "Eligible for {$percent}% full refund within {$window}-day monthly window ({$daysElapsed} of {$window} days elapsed)."
@@ -162,6 +179,7 @@ class RefundController extends Controller
             'window_days' => $window,
             'billing_period' => $invoice->billing_period,
             'refund_percent' => $percent,
+            'can_revert_plan' => $percent >= 50,
             'original_amount_cents' => $invoice->amount_cents,
             'recommended_refund_cents' => $amountCents,
             'reason' => $reason,

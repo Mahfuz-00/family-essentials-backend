@@ -24,7 +24,10 @@ class TenantController extends Controller
     {
         $tenant = Tenant::query()->findOrFail(app(TenantContext::class)->id());
 
-        $tenant->update(['settings' => $request->input('settings')]);
+        $currentSettings = $tenant->settings ?? [];
+        $newSettings = array_merge($currentSettings, $request->input('settings', []));
+
+        $tenant->update(['settings' => $newSettings]);
 
         return (new TenantResource($tenant))->response();
     }

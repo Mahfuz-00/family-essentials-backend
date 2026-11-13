@@ -18,6 +18,7 @@ class RestockEssentialRequest extends FormRequest
     {
         return [
             'quantity' => ['required', 'integer', 'min:1', 'max:99'],
+            'spent_minor' => ['sometimes', 'integer', 'min:0'],
         ];
     }
 }

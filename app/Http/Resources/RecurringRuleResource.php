@@ -19,6 +19,8 @@ class RecurringRuleResource extends JsonResource
             'id' => $this->id,
             'title' => $this->title,
             'quantity' => $this->quantity,
+            'items' => $this->items ?? [],
+            'direction' => $this->direction ?? 'expense',
             'notes' => $this->notes,
             'category' => $this->category,
             'priority' => $this->priority->value,

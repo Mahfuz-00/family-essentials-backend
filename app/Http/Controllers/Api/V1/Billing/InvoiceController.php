@@ -291,6 +291,23 @@ class InvoiceController extends Controller
                 ]);
             }
 
+            // Check if reverting to a lower tier
+            $tierRanks = ['starter' => 0, 'plus' => 1, 'pilot' => 1, 'standard' => 2, 'family' => 2, 'family_plus' => 3, 'enterprise' => 4];
+            $currentRank = $tierRanks[$tenant->subscription_tier] ?? 1;
+            $targetRank = $tierRanks[$targetTier] ?? 1;
+            $isReverting = $targetRank < $currentRank;
+
+            // Reverting to previous plan is possible till 50% refund; after that reverting is not possible
+            if ($isReverting && $daysElapsed > 20) {
+                return response()->json([
+                    'eligible' => false,
+                    'days_elapsed' => $daysElapsed,
+                    'can_revert' => false,
+                    'reason' => 'Reverting to a previous plan is only permitted while your subscription is eligible for at least a 50% refund. Reverting is locked.',
+                    'policy_code' => 'revert_locked',
+                ]);
+            }
+
             $adjustmentPercent = (int) ($policy['monthly_change_adjustment_percent'] ?? 50);
             $discountCents = (int) round(($baseAmountCents * $adjustmentPercent) / 100);
             $finalAmountCents = max(0, $baseAmountCents - $discountCents);
@@ -305,6 +322,7 @@ class InvoiceController extends Controller
                 'discount_cents' => $discountCents,
                 'adjustment_percent' => $adjustmentPercent,
                 'final_amount_cents' => $finalAmountCents,
+                'can_revert' => $daysElapsed <= 20,
                 'reason' => "Day {$daysElapsed} of monthly cycle: Eligible with a {$adjustmentPercent}% mid-cycle adjustment credit.",
             ]);
         }
@@ -329,7 +347,38 @@ class InvoiceController extends Controller
             'base_amount_cents' => $baseAmountCents,
             'discount_cents' => 0,
             'final_amount_cents' => $baseAmountCents,
+            'can_revert' => $daysElapsed <= 90,
             'reason' => "Within 3-month annual plan modification window ({$daysElapsed} of {$annualLockDays} days elapsed).",
+        ]);
+    }
+
+    /**
+     * Cancel household subscription. Immediately logs out user and locks account.
+     */
+    public function cancelSubscription(Request $request): JsonResponse
+    {
+        $tenant = $this->currentTenant();
+        $user = $request->user();
+
+        $tenant->update([
+            'status' => 'cancelled',
+            'suspended_at' => now(),
+        ]);
+
+        $this->audit->record('billing.subscription_cancelled', [
+            'tenant_id' => $tenant->id,
+            'tenant_name' => $tenant->name,
+            'cancelled_by' => $user?->name,
+            'email' => $user?->email,
+        ], 'warning');
+
+        // Immediately revoke the caller's tokens so they are logged out
+        $user?->tokens()->delete();
+
+        return response()->json([
+            'message' => 'Subscription cancelled successfully. You have been logged out and account features are locked until re-subscription.',
+            'status' => 'cancelled',
+            'logged_out' => true,
         ]);
     }
 

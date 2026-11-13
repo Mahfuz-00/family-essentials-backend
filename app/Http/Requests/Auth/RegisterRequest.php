@@ -23,6 +23,9 @@ class RegisterRequest extends FormRequest
             'phone' => ['required', 'string', 'max:32', 'unique:users,phone'],
             'password' => ['required', 'string', 'confirmed', Password::defaults()],
             'household_name' => ['sometimes', 'string', 'max:255'],
+            'currency' => ['sometimes', 'nullable', 'string', 'max:3'],
+            'monthly_budget_minor' => ['sometimes', 'nullable', 'integer', 'min:0'],
+            'yearly_budget_minor' => ['sometimes', 'nullable', 'integer', 'min:0'],
             'device_name' => ['sometimes', 'string', 'max:255'],
         ];
     }

@@ -25,6 +25,13 @@ flutter analyze
 flutter test
 ```
 
+**Website** (`Website/`) — static, no build step:
+- Confirm `index.html` opens and its internal links resolve to real pages or anchors.
+- Confirm `sitemap.xml` lists only URLs the site actually serves, and `robots.txt` points
+  at the sitemap.
+- If marketing content changed, confirm the React pages under `Frontend/src/pages/marketing/`
+  and this static copy agree (pricing, feature names, refund policy).
+
 Then run the kit drift check from the repository root:
 ```bash
 node tools/agent-kit.mjs --check

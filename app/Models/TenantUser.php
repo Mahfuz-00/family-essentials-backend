@@ -23,6 +23,25 @@ class TenantUser extends Model
     public const ROLES = ['tenant_admin', 'co_admin', 'member', 'junior'];
 
     /**
+     * User-facing label for the role. Never exposes tenant_admin to clients.
+     */
+    public function getRoleLabelAttribute(): string
+    {
+        return self::formatRole($this->role);
+    }
+
+    public static function formatRole(?string $role): string
+    {
+        return match ($role) {
+            'tenant_admin' => 'Household Admin',
+            'co_admin' => 'Household Co-Admin',
+            'member' => 'Household Member',
+            'junior' => 'Junior Member',
+            default => 'Household Member',
+        };
+    }
+
+    /**
      * @return array<string, string>
      */
     protected function casts(): array
