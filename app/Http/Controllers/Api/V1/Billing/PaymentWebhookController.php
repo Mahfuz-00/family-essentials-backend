@@ -9,6 +9,7 @@ use App\Models\Tenant;
 use App\Payments\PaymentGatewayManager;
 use App\Tenancy\Tenancy;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
 use Throwable;
@@ -25,8 +26,12 @@ class PaymentWebhookController extends Controller
         private readonly PaymentGatewayManager $gateways,
     ) {}
 
-    public function handle(Request $request, string $provider): JsonResponse
+    public function handle(Request $request, string $provider): JsonResponse|RedirectResponse
     {
+        // A GET is a browser return (bKash); a POST is a server callback.
+        $browserReturn = $request->isMethod('get');
+        $billingUrl = rtrim((string) config('app.frontend_url', config('app.url')), '/').'/billing';
+
         try {
             $gateway = $this->gateways->gateway($provider);
         } catch (InvalidArgumentException) {
@@ -37,19 +42,27 @@ class PaymentWebhookController extends Controller
             $event = $gateway->verifyWebhook($request);
             $event = $gateway->confirm($event);
         } catch (Throwable $exception) {
+            if ($browserReturn) {
+                return redirect()->away($billingUrl.'?checkout=failed');
+            }
+
             return response()->json([
                 'message' => 'Webhook rejected: '.$exception->getMessage(),
             ], 400);
         }
 
         if (! $event->paid || $event->invoiceId === null) {
-            return response()->json(['received' => true, 'handled' => false]);
+            return $browserReturn
+                ? redirect()->away($billingUrl.'?checkout=pending')
+                : response()->json(['received' => true, 'handled' => false]);
         }
 
         $invoice = Invoice::find($event->invoiceId);
 
         if ($invoice === null) {
-            return response()->json(['received' => true, 'handled' => false]);
+            return $browserReturn
+                ? redirect()->away($billingUrl.'?checkout=pending')
+                : response()->json(['received' => true, 'handled' => false]);
         }
 
         if ($invoice->status !== 'paid') {
@@ -77,6 +90,8 @@ class PaymentWebhookController extends Controller
             });
         }
 
-        return response()->json(['received' => true, 'handled' => true]);
+        return $browserReturn
+            ? redirect()->away($billingUrl.'?checkout=success')
+            : response()->json(['received' => true, 'handled' => true]);
     }
 }

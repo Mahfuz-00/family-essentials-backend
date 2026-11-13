@@ -46,7 +46,9 @@ final class BkashGateway implements PaymentGateway
         $response = $this->authorized()->post($this->base().'/tokenized/checkout/create', [
             'mode' => '0011',
             'payerReference' => (string) $invoice->tenant_id,
-            'callbackURL' => $successUrl,
+            // bKash returns the browser to callbackURL with paymentID; the
+            // webhook controller executes it and then redirects to the app.
+            'callbackURL' => url('/api/v1/webhooks/payments/bkash'),
             'amount' => number_format($invoice->amount_cents / 100, 2, '.', ''),
             'currency' => 'BDT',
             'intent' => 'sale',
