@@ -255,6 +255,62 @@ class SettingsController extends Controller
             ]);
         }
 
+        if ($gateway === 'paypal') {
+            $clientId = config('services.paypal.client_id');
+            $clientSecret = config('services.paypal.client_secret');
+
+            if (! is_string($clientId) || $clientId === '' || ! is_string($clientSecret) || $clientSecret === '') {
+                return response()->json([
+                    'status' => 'unconfigured',
+                    'gateway' => 'paypal',
+                    'message' => 'PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET are not set.',
+                ], 422);
+            }
+
+            $paypalMode = config('services.paypal.mode', 'sandbox') === 'live' ? 'live' : 'sandbox';
+            $base = $paypalMode === 'live'
+                ? 'https://api-m.paypal.com'
+                : 'https://api-m.sandbox.paypal.com';
+            $start = microtime(true);
+
+            try {
+                $response = Http::withBasicAuth($clientId, $clientSecret)
+                    ->asForm()
+                    ->acceptJson()
+                    ->timeout(10)
+                    ->post($base.'/v1/oauth2/token', ['grant_type' => 'client_credentials']);
+            } catch (Throwable $exception) {
+                return response()->json([
+                    'status' => 'error',
+                    'gateway' => 'paypal',
+                    'mode' => $paypalMode,
+                    'message' => 'Could not reach PayPal: '.$exception->getMessage(),
+                ], 502);
+            }
+
+            $latencyMs = round((microtime(true) - $start) * 1000);
+
+            if ($response->failed() || ! is_string($response->json('access_token'))) {
+                return response()->json([
+                    'status' => 'error',
+                    'gateway' => 'paypal',
+                    'mode' => $paypalMode,
+                    'latency_ms' => $latencyMs,
+                    'message' => 'PayPal rejected the credentials: '
+                        .($response->json('error_description') ?? 'HTTP '.$response->status()),
+                ], 502);
+            }
+
+            return response()->json([
+                'status' => 'connected',
+                'gateway' => 'paypal',
+                'mode' => $paypalMode,
+                'latency_ms' => $latencyMs,
+                'message' => "PayPal OAuth token issued in {$paypalMode} mode.",
+                'timestamp' => now()->toIso8601String(),
+            ]);
+        }
+
         if ($gateway === 'cash') {
             return response()->json([
                 'status' => 'connected',

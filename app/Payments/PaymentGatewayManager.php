@@ -11,6 +11,7 @@ final class PaymentGatewayManager
     {
         return match ($key) {
             'stripe' => app(StripeGateway::class),
+            'paypal' => app(PayPalGateway::class),
             default => throw new InvalidArgumentException("Unsupported payment gateway [{$key}]."),
         };
     }

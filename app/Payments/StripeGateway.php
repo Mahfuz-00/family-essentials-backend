@@ -127,6 +127,11 @@ final class StripeGateway implements PaymentGateway
         );
     }
 
+    public function confirm(PaymentEvent $event): PaymentEvent
+    {
+        return $event;
+    }
+
     private function assertSignature(string $payload, string $header, string $secret): void
     {
         $parts = [];

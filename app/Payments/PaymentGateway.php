@@ -26,4 +26,10 @@ interface PaymentGateway
      * @throws \RuntimeException when the signature is missing, stale or invalid
      */
     public function verifyWebhook(Request $request): PaymentEvent;
+
+    /**
+     * Finish any provider-side step before settlement (for example PayPal's
+     * capture of an approved order). Stripe needs no confirmation.
+     */
+    public function confirm(PaymentEvent $event): PaymentEvent;
 }

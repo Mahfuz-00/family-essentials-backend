@@ -29,7 +29,7 @@ class PaymentCheckoutController extends Controller
         $validated = $request->validate([
             'tier' => ['required', 'string', 'in:starter,plus,family,family_plus,enterprise'],
             'billing_period' => ['nullable', 'string', 'in:monthly,annual,yearly'],
-            'gateway' => ['nullable', 'string', 'in:stripe'],
+            'gateway' => ['nullable', 'string', 'in:stripe,paypal'],
             'success_url' => ['nullable', 'url', 'max:2048'],
             'cancel_url' => ['nullable', 'url', 'max:2048'],
         ]);

@@ -35,6 +35,7 @@ class PaymentWebhookController extends Controller
 
         try {
             $event = $gateway->verifyWebhook($request);
+            $event = $gateway->confirm($event);
         } catch (Throwable $exception) {
             return response()->json([
                 'message' => 'Webhook rejected: '.$exception->getMessage(),
