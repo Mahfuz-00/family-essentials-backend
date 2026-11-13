@@ -311,6 +311,58 @@ class SettingsController extends Controller
             ]);
         }
 
+        if ($gateway === 'razorpay') {
+            $keyId = config('services.razorpay.key_id');
+            $keySecret = config('services.razorpay.key_secret');
+
+            if (! is_string($keyId) || $keyId === '' || ! is_string($keySecret) || $keySecret === '') {
+                return response()->json([
+                    'status' => 'unconfigured',
+                    'gateway' => 'razorpay',
+                    'message' => 'RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET are not set.',
+                ], 422);
+            }
+
+            $razorpayMode = str_starts_with($keyId, 'rzp_live_') ? 'live' : 'sandbox';
+            $start = microtime(true);
+
+            try {
+                $response = Http::withBasicAuth($keyId, $keySecret)
+                    ->acceptJson()
+                    ->timeout(10)
+                    ->get('https://api.razorpay.com/v1/orders', ['count' => 1]);
+            } catch (Throwable $exception) {
+                return response()->json([
+                    'status' => 'error',
+                    'gateway' => 'razorpay',
+                    'mode' => $razorpayMode,
+                    'message' => 'Could not reach Razorpay: '.$exception->getMessage(),
+                ], 502);
+            }
+
+            $latencyMs = round((microtime(true) - $start) * 1000);
+
+            if ($response->failed()) {
+                return response()->json([
+                    'status' => 'error',
+                    'gateway' => 'razorpay',
+                    'mode' => $razorpayMode,
+                    'latency_ms' => $latencyMs,
+                    'message' => 'Razorpay rejected the credentials: '
+                        .($response->json('error.description') ?? 'HTTP '.$response->status()),
+                ], 502);
+            }
+
+            return response()->json([
+                'status' => 'connected',
+                'gateway' => 'razorpay',
+                'mode' => $razorpayMode,
+                'latency_ms' => $latencyMs,
+                'message' => "Razorpay API reachable with the configured {$razorpayMode} keys.",
+                'timestamp' => now()->toIso8601String(),
+            ]);
+        }
+
         if ($gateway === 'cash') {
             return response()->json([
                 'status' => 'connected',
