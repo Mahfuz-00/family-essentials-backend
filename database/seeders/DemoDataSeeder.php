@@ -228,13 +228,46 @@ class DemoDataSeeder extends Seeder
             'notes' => 'Any weekday morning works.',
         ]);
 
-        // Pantry: two due (one by safety stock, one by cadence), one healthy,
-        // one inactive.
-        $this->essential('Milk', 'dairy', 'Whole Foods Market', 3, 1, 0, Carbon::now()->subDays(2));
-        $this->essential('Bread', 'bakery', 'Whole Foods Market', 2, 1, 1, Carbon::now()->subDays(3));
-        $this->essential('Coffee beans', 'pantry', 'Whole Foods Market', 14, 1, 4, Carbon::now()->subDays(2));
-        $this->essential('Bin liners', 'home', 'Corner Shop', 30, 0, 0, Carbon::now()->subDays(40));
-        $this->essential('Dish soap', 'cleaning', 'Corner Shop', 21, 1, 2, Carbon::now()->subDays(5), active: false);
+        // Pantry: rich essentials covering all household grocery & domestic categories
+        // with realistic stock levels, reorder points, unit pricing, and spend records.
+        $this->essential('Whole Organic Milk', 'dairy_eggs', 'Whole Foods Market', 7, 2, 1, Carbon::now()->subDays(2), true, 450, 900, 3600, '1 gal');
+        $this->essential('Farm Fresh Free-Range Eggs', 'dairy_eggs', 'Whole Foods Market', 7, 2, 2, Carbon::now()->subDays(3), true, 550, 550, 4400, '12 count');
+        $this->essential('Greek Whole Milk Yogurt', 'dairy_eggs', 'Whole Foods Market', 10, 1, 3, Carbon::now()->subDays(4), true, 600, 600, 3000, '32 oz');
+        $this->essential('Kerrygold Salted Butter', 'dairy_eggs', 'Whole Foods Market', 21, 1, 2, Carbon::now()->subDays(8), true, 480, 960, 2400, '8 oz');
+
+        $this->essential('Artisanal Sourdough Bread', 'bakery', 'Whole Foods Market', 4, 1, 0, Carbon::now()->subDays(4), true, 650, 650, 3900, '1 loaf');
+        $this->essential('Whole Wheat Brioche Buns', 'bakery', 'Whole Foods Market', 7, 1, 2, Carbon::now()->subDays(2), true, 420, 420, 1680, '6 pack');
+
+        $this->essential('Organic Cavendish Bananas', 'produce', 'Whole Foods Market', 5, 2, 1, Carbon::now()->subDays(3), true, 280, 280, 1960, '1 bunch');
+        $this->essential('Hass Avocados (Bag of 4)', 'produce', 'Whole Foods Market', 6, 1, 0, Carbon::now()->subDays(5), true, 499, 499, 3992, '4 pack');
+        $this->essential('Baby Spinach Greens', 'produce', 'Whole Foods Market', 5, 1, 2, Carbon::now()->subDays(1), true, 399, 399, 2394, '16 oz');
+        $this->essential('Sweet Vine Tomatoes', 'produce', 'Whole Foods Market', 7, 2, 3, Carbon::now()->subDays(2), true, 349, 698, 2094, '1 lb');
+
+        $this->essential('Organic Chicken Breasts', 'meat_seafood', 'Whole Foods Market', 7, 2, 1, Carbon::now()->subDays(4), true, 1450, 2900, 5800, '2 lbs');
+        $this->essential('Atlantic Wild Salmon Fillet', 'meat_seafood', 'Whole Foods Market', 5, 1, 0, Carbon::now()->subDays(5), true, 1899, 1899, 7596, '1.5 lbs');
+        $this->essential('Lean Ground Beef (85/15)', 'meat_seafood', 'Whole Foods Market', 7, 2, 3, Carbon::now()->subDays(2), true, 799, 1598, 4794, '1 lb');
+
+        $this->essential('Extra Virgin Olive Oil', 'pantry_staples', 'Whole Foods Market', 30, 1, 2, Carbon::now()->subDays(15), true, 1650, 1650, 4950, '750 ml');
+        $this->essential('Organic Jasmine Rice', 'pantry_staples', 'Whole Foods Market', 45, 1, 1, Carbon::now()->subDays(20), true, 1100, 1100, 3300, '5 lbs');
+        $this->essential('Bronze-Cut Pasta Penne', 'pantry_staples', 'Whole Foods Market', 20, 2, 4, Carbon::now()->subDays(10), true, 299, 598, 1794, '1 lb');
+
+        $this->essential('Dark Roast Coffee Beans', 'beverages', 'Whole Foods Market', 14, 1, 2, Carbon::now()->subDays(5), true, 1400, 1400, 8400, '12 oz');
+        $this->essential('Cold-Pressed Orange Juice', 'beverages', 'Whole Foods Market', 6, 1, 0, Carbon::now()->subDays(6), true, 599, 599, 3594, '52 oz');
+        $this->essential('Sparkling Mineral Water', 'beverages', 'Whole Foods Market', 10, 2, 4, Carbon::now()->subDays(3), true, 750, 1500, 4500, '12 cans');
+
+        $this->essential('Roasted & Salted Almonds', 'snacks', 'Whole Foods Market', 20, 1, 2, Carbon::now()->subDays(10), true, 899, 899, 3596, '16 oz');
+        $this->essential('Organic Tortilla Chips', 'snacks', 'Whole Foods Market', 10, 1, 1, Carbon::now()->subDays(4), true, 429, 429, 2574, '14 oz');
+
+        $this->essential('Eco Concentrated Dish Soap', 'household_cleaning', 'Corner Shop', 21, 1, 1, Carbon::now()->subDays(12), true, 380, 380, 1900, '16 oz');
+        $this->essential('Heavy-Duty Drawstring Bin Liners', 'household_cleaning', 'Corner Shop', 30, 1, 0, Carbon::now()->subDays(32), true, 1250, 1250, 3750, '40 count');
+        $this->essential('Multi-Surface Plant Cleanser', 'household_cleaning', 'Corner Shop', 30, 1, 2, Carbon::now()->subDays(15), true, 499, 499, 2495, '32 oz');
+        $this->essential('Eco Laundry Detergent Sheets', 'household_cleaning', 'Corner Shop', 30, 1, 3, Carbon::now()->subDays(14), true, 1499, 1499, 4497, '60 loads');
+
+        $this->essential('Moisturizing Shea Body Wash', 'personal_care', 'Corner Shop', 30, 1, 2, Carbon::now()->subDays(20), true, 749, 749, 2247, '18 oz');
+        $this->essential('Natural Mint Toothpaste', 'personal_care', 'Corner Shop', 25, 1, 1, Carbon::now()->subDays(18), true, 699, 699, 2796, '2 pack');
+
+        $this->essential('Adult Multivitamin Gummies', 'medicine', 'Corner Shop', 45, 1, 2, Carbon::now()->subDays(25), true, 1599, 1599, 4797, '90 count');
+        $this->essential('Ibuprofen Tablets 200mg', 'medicine', 'Corner Shop', 60, 1, 1, Carbon::now()->subDays(40), true, 849, 849, 2547, '100 count');
 
         $this->device($admin, 'ios', 'demo-ios-tanvir');
         $this->device($member, 'android', 'demo-android-sarah');
@@ -473,6 +506,58 @@ class DemoDataSeeder extends Seeder
             'ledger_id' => $ledger->id,
         ]);
 
+        $this->recurringRule($admin, [
+            'title' => 'Fiber Gigabit Home Internet',
+            'cadence' => Cadence::Monthly,
+            'day_of_month' => 5,
+            'next_run_on' => Carbon::today()->addDays(5)->toDateString(),
+            'category' => 'Utilities & Bills',
+            'priority' => RequestPriority::High,
+            'notes' => 'High-speed fiber connectivity for remote work and home devices.',
+            'assignee_id' => $admin->id,
+            'amount_minor' => 8_500,
+            'ledger_id' => $ledger->id,
+        ]);
+
+        $this->recurringRule($admin, [
+            'title' => 'Family Streaming & Media Bundle',
+            'cadence' => Cadence::Monthly,
+            'day_of_month' => 12,
+            'next_run_on' => Carbon::today()->addDays(12)->toDateString(),
+            'category' => 'Subscriptions & Media',
+            'priority' => RequestPriority::Normal,
+            'notes' => 'Shared Netflix 4K, Spotify Family, and cloud backup storage.',
+            'assignee_id' => $admin->id,
+            'amount_minor' => 2_499,
+            'ledger_id' => $ledger->id,
+        ]);
+
+        $this->recurringRule($admin, [
+            'title' => 'Household Homeowners Insurance',
+            'cadence' => Cadence::Monthly,
+            'day_of_month' => 1,
+            'next_run_on' => Carbon::today()->addDays(18)->toDateString(),
+            'category' => 'Healthcare & Insurance',
+            'priority' => RequestPriority::High,
+            'notes' => 'Comprehensive hazard and liability property coverage.',
+            'assignee_id' => $admin->id,
+            'amount_minor' => 14_500,
+            'ledger_id' => $ledger->id,
+        ]);
+
+        $this->recurringRule($admin, [
+            'title' => 'Local Fitness Club Family Pass',
+            'cadence' => Cadence::Monthly,
+            'day_of_month' => 15,
+            'next_run_on' => Carbon::today()->addDays(15)->toDateString(),
+            'category' => 'Subscriptions & Media',
+            'priority' => RequestPriority::Normal,
+            'notes' => 'Gym, pool access, and weekend tennis courts.',
+            'assignee_id' => $member->id,
+            'amount_minor' => 7_500,
+            'ledger_id' => $ledger->id,
+        ]);
+
         $this->feedback($admin, [
             'type' => 'bug',
             'priority' => 'high',
@@ -661,10 +746,28 @@ class DemoDataSeeder extends Seeder
         int $stockLevel,
         Carbon $lastRestocked,
         bool $active = true,
+        int $unitPriceMinor = 0,
+        int $lastSpentMinor = 0,
+        int $totalSpentMinor = 0,
+        string $packSize = 'items',
     ): Essential {
         $existing = Essential::query()->where('name', $name)->first();
 
         if ($existing !== null) {
+            $existing->forceFill([
+                'category' => $category,
+                'default_store' => $store,
+                'pack_size' => $packSize,
+                'cadence_days' => $cadenceDays,
+                'threshold' => $threshold,
+                'stock_level' => $stockLevel,
+                'unit_price_minor' => $unitPriceMinor,
+                'last_spent_minor' => $lastSpentMinor,
+                'total_spent_minor' => $totalSpentMinor,
+                'last_restocked_at' => $lastRestocked,
+                'is_active' => $active,
+            ])->save();
+
             return $existing;
         }
 
@@ -675,9 +778,13 @@ class DemoDataSeeder extends Seeder
             'name' => $name,
             'category' => $category,
             'default_store' => $store,
+            'pack_size' => $packSize,
             'cadence_days' => $cadenceDays,
             'threshold' => $threshold,
             'stock_level' => $stockLevel,
+            'unit_price_minor' => $unitPriceMinor,
+            'last_spent_minor' => $lastSpentMinor,
+            'total_spent_minor' => $totalSpentMinor,
             'last_restocked_at' => $lastRestocked,
             'is_active' => $active,
         ])->save();
