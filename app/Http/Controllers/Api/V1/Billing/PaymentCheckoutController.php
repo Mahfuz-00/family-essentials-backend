@@ -30,7 +30,7 @@ class PaymentCheckoutController extends Controller
         $validated = $request->validate([
             'tier' => ['required', 'string', 'in:starter,plus,family,family_plus,enterprise'],
             'billing_period' => ['nullable', 'string', 'in:monthly,annual,yearly'],
-            'gateway' => ['nullable', 'string', 'in:stripe,paypal,razorpay,sslcommerz,bkash,paystack'],
+            'gateway' => ['nullable', 'string', 'in:stripe,paypal,razorpay,sslcommerz,bkash,paystack,mollie'],
             'currency' => ['nullable', 'string', 'size:3'],
             'success_url' => ['nullable', 'url', 'max:2048'],
             'cancel_url' => ['nullable', 'url', 'max:2048'],

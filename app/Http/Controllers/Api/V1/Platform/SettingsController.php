@@ -498,6 +498,57 @@ class SettingsController extends Controller
             ]);
         }
 
+        if ($gateway === 'mollie') {
+            $apiKey = config('services.mollie.api_key');
+
+            if (! is_string($apiKey) || $apiKey === '') {
+                return response()->json([
+                    'status' => 'unconfigured',
+                    'gateway' => 'mollie',
+                    'message' => 'MOLLIE_API_KEY is not set.',
+                ], 422);
+            }
+
+            $mollieMode = str_starts_with($apiKey, 'live_') ? 'live' : 'sandbox';
+            $start = microtime(true);
+
+            try {
+                $response = Http::withToken($apiKey)
+                    ->acceptJson()
+                    ->timeout(10)
+                    ->get('https://api.mollie.com/v2/payments', ['limit' => 1]);
+            } catch (Throwable $exception) {
+                return response()->json([
+                    'status' => 'error',
+                    'gateway' => 'mollie',
+                    'mode' => $mollieMode,
+                    'message' => 'Could not reach Mollie: '.$exception->getMessage(),
+                ], 502);
+            }
+
+            $latencyMs = round((microtime(true) - $start) * 1000);
+
+            if ($response->failed()) {
+                return response()->json([
+                    'status' => 'error',
+                    'gateway' => 'mollie',
+                    'mode' => $mollieMode,
+                    'latency_ms' => $latencyMs,
+                    'message' => 'Mollie rejected the credentials: '
+                        .($response->json('detail') ?? 'HTTP '.$response->status()),
+                ], 502);
+            }
+
+            return response()->json([
+                'status' => 'connected',
+                'gateway' => 'mollie',
+                'mode' => $mollieMode,
+                'latency_ms' => $latencyMs,
+                'message' => "Mollie API reachable with the configured {$mollieMode} key.",
+                'timestamp' => now()->toIso8601String(),
+            ]);
+        }
+
         if ($gateway === 'cash') {
             return response()->json([
                 'status' => 'connected',

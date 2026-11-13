@@ -66,6 +66,11 @@ return [
         'secret_key' => env('PAYSTACK_SECRET_KEY'),
     ],
 
+    'mollie' => [
+        'api_key' => env('MOLLIE_API_KEY'),
+        'webhook_url' => env('MOLLIE_WEBHOOK_URL'),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

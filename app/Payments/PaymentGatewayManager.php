@@ -16,6 +16,7 @@ final class PaymentGatewayManager
             'sslcommerz' => app(SslCommerzGateway::class),
             'bkash' => app(BkashGateway::class),
             'paystack' => app(PaystackGateway::class),
+            'mollie' => app(MollieGateway::class),
             default => throw new InvalidArgumentException("Unsupported payment gateway [{$key}]."),
         };
     }
