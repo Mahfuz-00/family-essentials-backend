@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\PlatformSetting;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Throwable;
 
@@ -202,6 +203,351 @@ class SettingsController extends Controller
             ? ($request->input('mode') === 'sandbox')
             : (bool) ($gatewayConfig['sandbox'] ?? true);
         $mode = $isSandbox ? 'sandbox' : 'live';
+
+        if ($gateway === 'stripe') {
+            $secret = config('services.stripe.secret');
+
+            if (! is_string($secret) || $secret === '') {
+                return response()->json([
+                    'status' => 'unconfigured',
+                    'gateway' => 'stripe',
+                    'message' => 'STRIPE_SECRET is not set. Add the sandbox or live secret key to the environment.',
+                ], 422);
+            }
+
+            $mode = str_starts_with($secret, 'sk_live_') ? 'live' : 'sandbox';
+            $start = microtime(true);
+
+            try {
+                $response = Http::withToken($secret)
+                    ->acceptJson()
+                    ->timeout(10)
+                    ->get('https://api.stripe.com/v1/balance');
+            } catch (Throwable $exception) {
+                return response()->json([
+                    'status' => 'error',
+                    'gateway' => 'stripe',
+                    'mode' => $mode,
+                    'message' => 'Could not reach Stripe: '.$exception->getMessage(),
+                ], 502);
+            }
+
+            $latencyMs = round((microtime(true) - $start) * 1000);
+
+            if ($response->failed()) {
+                return response()->json([
+                    'status' => 'error',
+                    'gateway' => 'stripe',
+                    'mode' => $mode,
+                    'latency_ms' => $latencyMs,
+                    'message' => 'Stripe rejected the credentials: '
+                        .($response->json('error.message') ?? 'HTTP '.$response->status()),
+                ], 502);
+            }
+
+            return response()->json([
+                'status' => 'connected',
+                'gateway' => 'stripe',
+                'mode' => $mode,
+                'latency_ms' => $latencyMs,
+                'message' => "Stripe API reachable with the configured {$mode} secret key.",
+                'timestamp' => now()->toIso8601String(),
+            ]);
+        }
+
+        if ($gateway === 'paypal') {
+            $clientId = config('services.paypal.client_id');
+            $clientSecret = config('services.paypal.client_secret');
+
+            if (! is_string($clientId) || $clientId === '' || ! is_string($clientSecret) || $clientSecret === '') {
+                return response()->json([
+                    'status' => 'unconfigured',
+                    'gateway' => 'paypal',
+                    'message' => 'PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET are not set.',
+                ], 422);
+            }
+
+            $paypalMode = config('services.paypal.mode', 'sandbox') === 'live' ? 'live' : 'sandbox';
+            $base = $paypalMode === 'live'
+                ? 'https://api-m.paypal.com'
+                : 'https://api-m.sandbox.paypal.com';
+            $start = microtime(true);
+
+            try {
+                $response = Http::withBasicAuth($clientId, $clientSecret)
+                    ->asForm()
+                    ->acceptJson()
+                    ->timeout(10)
+                    ->post($base.'/v1/oauth2/token', ['grant_type' => 'client_credentials']);
+            } catch (Throwable $exception) {
+                return response()->json([
+                    'status' => 'error',
+                    'gateway' => 'paypal',
+                    'mode' => $paypalMode,
+                    'message' => 'Could not reach PayPal: '.$exception->getMessage(),
+                ], 502);
+            }
+
+            $latencyMs = round((microtime(true) - $start) * 1000);
+
+            if ($response->failed() || ! is_string($response->json('access_token'))) {
+                return response()->json([
+                    'status' => 'error',
+                    'gateway' => 'paypal',
+                    'mode' => $paypalMode,
+                    'latency_ms' => $latencyMs,
+                    'message' => 'PayPal rejected the credentials: '
+                        .($response->json('error_description') ?? 'HTTP '.$response->status()),
+                ], 502);
+            }
+
+            return response()->json([
+                'status' => 'connected',
+                'gateway' => 'paypal',
+                'mode' => $paypalMode,
+                'latency_ms' => $latencyMs,
+                'message' => "PayPal OAuth token issued in {$paypalMode} mode.",
+                'timestamp' => now()->toIso8601String(),
+            ]);
+        }
+
+        if ($gateway === 'razorpay') {
+            $keyId = config('services.razorpay.key_id');
+            $keySecret = config('services.razorpay.key_secret');
+
+            if (! is_string($keyId) || $keyId === '' || ! is_string($keySecret) || $keySecret === '') {
+                return response()->json([
+                    'status' => 'unconfigured',
+                    'gateway' => 'razorpay',
+                    'message' => 'RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET are not set.',
+                ], 422);
+            }
+
+            $razorpayMode = str_starts_with($keyId, 'rzp_live_') ? 'live' : 'sandbox';
+            $start = microtime(true);
+
+            try {
+                $response = Http::withBasicAuth($keyId, $keySecret)
+                    ->acceptJson()
+                    ->timeout(10)
+                    ->get('https://api.razorpay.com/v1/orders', ['count' => 1]);
+            } catch (Throwable $exception) {
+                return response()->json([
+                    'status' => 'error',
+                    'gateway' => 'razorpay',
+                    'mode' => $razorpayMode,
+                    'message' => 'Could not reach Razorpay: '.$exception->getMessage(),
+                ], 502);
+            }
+
+            $latencyMs = round((microtime(true) - $start) * 1000);
+
+            if ($response->failed()) {
+                return response()->json([
+                    'status' => 'error',
+                    'gateway' => 'razorpay',
+                    'mode' => $razorpayMode,
+                    'latency_ms' => $latencyMs,
+                    'message' => 'Razorpay rejected the credentials: '
+                        .($response->json('error.description') ?? 'HTTP '.$response->status()),
+                ], 502);
+            }
+
+            return response()->json([
+                'status' => 'connected',
+                'gateway' => 'razorpay',
+                'mode' => $razorpayMode,
+                'latency_ms' => $latencyMs,
+                'message' => "Razorpay API reachable with the configured {$razorpayMode} keys.",
+                'timestamp' => now()->toIso8601String(),
+            ]);
+        }
+
+        if ($gateway === 'sslcommerz') {
+            $storeId = config('services.sslcommerz.store_id');
+            $storePassword = config('services.sslcommerz.store_password');
+
+            if (! is_string($storeId) || $storeId === '' || ! is_string($storePassword) || $storePassword === '') {
+                return response()->json([
+                    'status' => 'unconfigured',
+                    'gateway' => 'sslcommerz',
+                    'message' => 'SSLCOMMERZ_STORE_ID and SSLCOMMERZ_STORE_PASSWD are not set.',
+                ], 422);
+            }
+
+            $sslMode = config('services.sslcommerz.mode', 'sandbox') === 'live' ? 'live' : 'sandbox';
+
+            return response()->json([
+                'status' => 'connected',
+                'gateway' => 'sslcommerz',
+                'mode' => $sslMode,
+                'latency_ms' => 0,
+                'message' => 'SSLCommerz credentials are present. SSLCommerz has no ping endpoint; the first session validates them.',
+                'timestamp' => now()->toIso8601String(),
+            ]);
+        }
+
+        if ($gateway === 'bkash') {
+            $appKey = config('services.bkash.app_key');
+            $appSecret = config('services.bkash.app_secret');
+            $username = config('services.bkash.username');
+            $password = config('services.bkash.password');
+
+            if (! is_string($appKey) || $appKey === '' || ! is_string($appSecret) || $appSecret === '') {
+                return response()->json([
+                    'status' => 'unconfigured',
+                    'gateway' => 'bkash',
+                    'message' => 'BKASH_APP_KEY and BKASH_APP_SECRET are not set.',
+                ], 422);
+            }
+
+            $bkashMode = config('services.bkash.mode', 'sandbox') === 'live' ? 'live' : 'sandbox';
+            $base = $bkashMode === 'live'
+                ? 'https://tokenized.pay.bka.sh/v1.2.0-beta'
+                : 'https://tokenized.sandbox.bka.sh/v1.2.0-beta';
+            $start = microtime(true);
+
+            try {
+                $response = Http::withHeaders([
+                    'username' => (string) $username,
+                    'password' => (string) $password,
+                ])->acceptJson()->asJson()->timeout(10)->post(
+                    $base.'/tokenized/checkout/token/grant',
+                    ['app_key' => $appKey, 'app_secret' => $appSecret],
+                );
+            } catch (Throwable $exception) {
+                return response()->json([
+                    'status' => 'error',
+                    'gateway' => 'bkash',
+                    'mode' => $bkashMode,
+                    'message' => 'Could not reach bKash: '.$exception->getMessage(),
+                ], 502);
+            }
+
+            $latencyMs = round((microtime(true) - $start) * 1000);
+
+            if ($response->failed() || ! is_string($response->json('id_token'))) {
+                return response()->json([
+                    'status' => 'error',
+                    'gateway' => 'bkash',
+                    'mode' => $bkashMode,
+                    'latency_ms' => $latencyMs,
+                    'message' => 'bKash rejected the credentials: '
+                        .($response->json('statusMessage') ?? 'HTTP '.$response->status()),
+                ], 502);
+            }
+
+            return response()->json([
+                'status' => 'connected',
+                'gateway' => 'bkash',
+                'mode' => $bkashMode,
+                'latency_ms' => $latencyMs,
+                'message' => "bKash token issued in {$bkashMode} mode.",
+                'timestamp' => now()->toIso8601String(),
+            ]);
+        }
+
+        if ($gateway === 'paystack') {
+            $secretKey = config('services.paystack.secret_key');
+
+            if (! is_string($secretKey) || $secretKey === '') {
+                return response()->json([
+                    'status' => 'unconfigured',
+                    'gateway' => 'paystack',
+                    'message' => 'PAYSTACK_SECRET_KEY is not set.',
+                ], 422);
+            }
+
+            $paystackMode = str_starts_with($secretKey, 'sk_live_') ? 'live' : 'sandbox';
+            $start = microtime(true);
+
+            try {
+                $response = Http::withToken($secretKey)
+                    ->acceptJson()
+                    ->timeout(10)
+                    ->get('https://api.paystack.co/transaction', ['perPage' => 1]);
+            } catch (Throwable $exception) {
+                return response()->json([
+                    'status' => 'error',
+                    'gateway' => 'paystack',
+                    'mode' => $paystackMode,
+                    'message' => 'Could not reach Paystack: '.$exception->getMessage(),
+                ], 502);
+            }
+
+            $latencyMs = round((microtime(true) - $start) * 1000);
+
+            if ($response->failed()) {
+                return response()->json([
+                    'status' => 'error',
+                    'gateway' => 'paystack',
+                    'mode' => $paystackMode,
+                    'latency_ms' => $latencyMs,
+                    'message' => 'Paystack rejected the credentials: '
+                        .($response->json('message') ?? 'HTTP '.$response->status()),
+                ], 502);
+            }
+
+            return response()->json([
+                'status' => 'connected',
+                'gateway' => 'paystack',
+                'mode' => $paystackMode,
+                'latency_ms' => $latencyMs,
+                'message' => "Paystack API reachable with the configured {$paystackMode} key.",
+                'timestamp' => now()->toIso8601String(),
+            ]);
+        }
+
+        if ($gateway === 'mollie') {
+            $apiKey = config('services.mollie.api_key');
+
+            if (! is_string($apiKey) || $apiKey === '') {
+                return response()->json([
+                    'status' => 'unconfigured',
+                    'gateway' => 'mollie',
+                    'message' => 'MOLLIE_API_KEY is not set.',
+                ], 422);
+            }
+
+            $mollieMode = str_starts_with($apiKey, 'live_') ? 'live' : 'sandbox';
+            $start = microtime(true);
+
+            try {
+                $response = Http::withToken($apiKey)
+                    ->acceptJson()
+                    ->timeout(10)
+                    ->get('https://api.mollie.com/v2/payments', ['limit' => 1]);
+            } catch (Throwable $exception) {
+                return response()->json([
+                    'status' => 'error',
+                    'gateway' => 'mollie',
+                    'mode' => $mollieMode,
+                    'message' => 'Could not reach Mollie: '.$exception->getMessage(),
+                ], 502);
+            }
+
+            $latencyMs = round((microtime(true) - $start) * 1000);
+
+            if ($response->failed()) {
+                return response()->json([
+                    'status' => 'error',
+                    'gateway' => 'mollie',
+                    'mode' => $mollieMode,
+                    'latency_ms' => $latencyMs,
+                    'message' => 'Mollie rejected the credentials: '
+                        .($response->json('detail') ?? 'HTTP '.$response->status()),
+                ], 502);
+            }
+
+            return response()->json([
+                'status' => 'connected',
+                'gateway' => 'mollie',
+                'mode' => $mollieMode,
+                'latency_ms' => $latencyMs,
+                'message' => "Mollie API reachable with the configured {$mollieMode} key.",
+                'timestamp' => now()->toIso8601String(),
+            ]);
+        }
 
         if ($gateway === 'cash') {
             return response()->json([
