@@ -18,7 +18,7 @@ return [
 
     'roles' => [
         'tenant_admin' => [
-            'label' => 'Tenant admin',
+            'label' => 'Household admin',
             'detail' => 'Full control, including roles and billing',
         ],
         'co_admin' => [

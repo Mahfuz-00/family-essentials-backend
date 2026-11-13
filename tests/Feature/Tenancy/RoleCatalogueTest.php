@@ -35,7 +35,7 @@ class RoleCatalogueTest extends TestCase
         $this->assertSame(1, $byKey['member']['member_count']);
         $this->assertSame(1, $byKey['junior']['member_count']);
         $this->assertSame(0, $byKey['co_admin']['member_count']);
-        $this->assertSame('Tenant admin', $byKey['tenant_admin']['label']);
+        $this->assertSame('Household admin', $byKey['tenant_admin']['label']);
     }
 
     public function test_the_matrix_covers_every_capability_for_every_role(): void
