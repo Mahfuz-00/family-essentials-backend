@@ -20,16 +20,35 @@ class LedgerSummaryController extends Controller
     {
         $this->authorize('viewSummary', $ledger);
 
-        // Default period: the current month.
-        $from = $request->filled('from')
-            ? Carbon::parse($request->string('from')->toString())->startOfDay()
-            : Carbon::today()->startOfMonth();
+        $periodType = $request->string('period_type', 'monthly')->toString();
 
-        $to = $request->filled('to')
-            ? Carbon::parse($request->string('to')->toString())->startOfDay()
-            : Carbon::today()->endOfMonth()->startOfDay();
+        if ($periodType === 'weekly') {
+            $from = $request->filled('from')
+                ? Carbon::parse($request->string('from')->toString())->startOfDay()
+                : Carbon::today()->startOfWeek();
 
-        $summary = LedgerSummary::forPeriod($ledger, $from, $to);
+            $to = $request->filled('to')
+                ? Carbon::parse($request->string('to')->toString())->endOfDay()
+                : Carbon::today()->endOfWeek()->endOfDay();
+        } elseif ($periodType === 'yearly') {
+            $from = $request->filled('from')
+                ? Carbon::parse($request->string('from')->toString())->startOfDay()
+                : Carbon::today()->startOfYear();
+
+            $to = $request->filled('to')
+                ? Carbon::parse($request->string('to')->toString())->endOfDay()
+                : Carbon::today()->endOfYear()->endOfDay();
+        } else {
+            $from = $request->filled('from')
+                ? Carbon::parse($request->string('from')->toString())->startOfDay()
+                : Carbon::today()->startOfMonth();
+
+            $to = $request->filled('to')
+                ? Carbon::parse($request->string('to')->toString())->endOfDay()
+                : Carbon::today()->endOfMonth()->endOfDay();
+        }
+
+        $summary = LedgerSummary::forPeriod($ledger, $from, $to, $periodType);
 
         return (new LedgerSummaryResource($summary))->response();
     }

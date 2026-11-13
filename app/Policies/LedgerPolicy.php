@@ -33,6 +33,11 @@ class LedgerPolicy
         return $this->role($user, $ledger) !== null;
     }
 
+    public function update(User $user, Ledger $ledger): bool
+    {
+        return $this->role($user, $ledger)?->managesMembership() === true;
+    }
+
     public function manageMembers(User $user, Ledger $ledger): bool
     {
         return $this->role($user, $ledger)?->managesMembership() === true;

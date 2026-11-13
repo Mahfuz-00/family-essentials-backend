@@ -12,14 +12,15 @@ class LedgerSummaryRequest extends FormRequest
     }
 
     /**
-     * The period defaults to the current month, so `GET .../summary` with no
-     * parameters is always "this month's money".
+     * The period defaults to the current month or week, so `GET .../summary` with no
+     * parameters is always "current period money".
      *
      * @return array<string, mixed>
      */
     public function rules(): array
     {
         return [
+            'period_type' => ['nullable', 'string', 'in:monthly,weekly,yearly,custom'],
             'from' => ['nullable', 'date'],
             'to' => ['nullable', 'date', 'after_or_equal:from'],
         ];

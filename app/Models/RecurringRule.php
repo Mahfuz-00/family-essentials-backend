@@ -21,8 +21,8 @@ use Illuminate\Support\Carbon;
  * the audit ledger, so it never happens.
  */
 #[Fillable([
-    'title', 'quantity', 'notes', 'category', 'priority',
-    'cadence', 'weekday', 'day_of_month',
+    'title', 'quantity', 'items', 'notes', 'category', 'priority',
+    'cadence', 'direction', 'weekday', 'day_of_month',
     'assignee_id', 'place_id', 'location_trigger_place_id', 'location_trigger_direction',
     'amount_minor', 'ledger_id', 'active', 'created_by',
 ])]
@@ -42,6 +42,7 @@ class RecurringRule extends Model
     protected $attributes = [
         'priority' => 'normal',
         'active' => true,
+        'direction' => 'expense',
     ];
 
     /**
@@ -50,6 +51,7 @@ class RecurringRule extends Model
     protected function casts(): array
     {
         return [
+            'items' => 'array',
             'priority' => RequestPriority::class,
             'cadence' => Cadence::class,
             'location_trigger_direction' => GeofenceEventType::class,

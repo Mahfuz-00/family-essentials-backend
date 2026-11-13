@@ -17,11 +17,22 @@ Normalise the two lists to the same prefix and diff them.
 2. Classify every difference as either **deliberate** or **a bug**, using these known
    intended omissions on the mobile side:
    - everything under `/platform/*` (the landlord console has no mobile equivalent)
+   - tenant export (`GET tenant/export`) and the roles catalogue (`GET tenant/roles`)
    - invitation *management* (`GET/POST/DELETE tenant/invitations`) — mobile may accept an
      invitation but never issues one
    - member role changes and removals (`PATCH/DELETE tenant/members/{user}`)
+   - profile edits (`PATCH me`, `POST me/password`)
+   - billing and refunds (`billing/*`, including payment methods, invoices, portal,
+     upgrade preview and refund requests)
+   - the calendar feed URL (`GET calendar/feed-url`)
+   - marketing endpoints (`marketing/subscribe`, `marketing/announcements/active`)
+   - the NLP dispatcher (`POST requests/parse-nlp`)
 
-   Anything else missing from `/mobile` is a bug.
+   Anything else missing from `/mobile` is a bug. Both surfaces should carry auth,
+   memberships, tenant read/update, members read, quotas, feedback, items, requests and
+   actions, device tokens, notifications, places and geofences, essentials, voice
+   escalation, recurring rules, ledgers (including `ledger/receipts/scan`) and provider
+   webhooks.
 
 3. Check that both authenticated groups still require their own ability
    (`abilities:dashboard` / `abilities:mobile`) in each route file, and that

@@ -14,6 +14,10 @@ use App\Ledgers\LedgerMembership;
 use App\Models\DeviceToken;
 use App\Models\Essential;
 use App\Models\FeedbackReport;
+use App\Models\FinancialAsset;
+use App\Models\FinancialGoal;
+use App\Models\FinancialLiability;
+use App\Models\FinancialTax;
 use App\Models\Item;
 use App\Models\Ledger;
 use App\Models\LedgerEntry;
@@ -236,53 +240,208 @@ class DemoDataSeeder extends Seeder
         $this->device($member, 'android', 'demo-android-sarah');
 
         // Money: one ledger the admin owns, the other adult in it as a
-        // summary-only member, and entries across two months and two categories
-        // so /money has a breakdown rather than an empty state.
+        // summary-only member, and entries across two months and multiple categories
+        // so the expense tracker and ledger breakdown are rich with data.
         $ledger = $this->ledger($admin, 'Household budget');
+        $ledger->forceFill([
+            'monthly_budget_minor' => 250_000_00,
+            'weekly_budget_minor' => 60_000_00,
+            'yearly_budget_minor' => 300_000_00,
+        ])->save();
         $this->ledgerMembership($ledger, $admin, LedgerRole::Owner);
         $this->ledgerMembership($ledger, $member, LedgerRole::Summary);
 
         $this->ledgerEntry($ledger, $admin, [
-            'description' => 'Big monthly shop',
+            'description' => 'Monthly Apartment Rent',
+            'category' => 'rent',
+            'amount_minor' => 120_000_00,
+            'occurred_on' => Carbon::today()->startOfMonth(),
+        ]);
+
+        $this->ledgerEntry($ledger, $admin, [
+            'description' => 'Electric & Gas Utility Bill',
+            'category' => 'utility_bill',
+            'amount_minor' => 18_500_00,
+            'occurred_on' => Carbon::today()->startOfMonth()->addDays(5),
+        ]);
+
+        $this->ledgerEntry($ledger, $admin, [
+            'description' => 'Big Monthly Grocery Shop',
             'category' => 'grocery',
-            'amount_minor' => 512_000,
+            'amount_minor' => 51_200_00,
             'occurred_on' => Carbon::today()->subMonthNoOverflow()->startOfMonth()->addDays(9),
         ]);
 
         $this->ledgerEntry($ledger, $member, [
-            'description' => 'Utilities top-up',
-            'category' => 'household',
-            'amount_minor' => 180_000,
+            'description' => 'Internet & Mobile Plan',
+            'category' => 'utility_bill',
+            'amount_minor' => 12_000_00,
             'occurred_on' => Carbon::today()->subMonthNoOverflow()->endOfMonth(),
         ]);
 
         $this->ledgerEntry($ledger, $admin, [
-            'description' => 'Corner shop top-up',
-            'category' => 'grocery',
-            'amount_minor' => 68_500,
+            'description' => 'Pharmacy & Prescription Copay',
+            'category' => 'healthcare',
+            'amount_minor' => 6_850_00,
             'occurred_on' => Carbon::today()->startOfMonth(),
         ]);
 
         $this->ledgerEntry($ledger, $member, [
-            'description' => 'Cleaning supplies',
+            'description' => 'Household Cleaning Supplies',
             'category' => 'household',
-            'amount_minor' => 94_000,
+            'amount_minor' => 9_400_00,
             'occurred_on' => Carbon::today()->startOfMonth(),
         ]);
 
         $this->ledgerEntry($ledger, $admin, [
-            'description' => 'Weekly shop',
+            'description' => 'Weekly Fresh Grocery Run',
             'category' => 'grocery',
-            'amount_minor' => 245_000,
+            'amount_minor' => 24_500_00,
             'occurred_on' => Carbon::today(),
         ]);
 
         $this->ledgerEntry($ledger, $member, [
-            'description' => 'Household contribution',
-            'amount_minor' => 600_000,
+            'description' => 'Monthly Household Salary Contribution',
+            'amount_minor' => 350_000_00,
             'direction' => LedgerEntryDirection::Income,
             'category' => null,
             'occurred_on' => Carbon::today()->startOfMonth(),
+        ]);
+
+        // Multi-item Request with dual quantities (asked vs got)
+        $this->request($admin, [
+            'title' => 'Weekly Organic Grocery Run',
+            'priority' => RequestPriority::Normal,
+            'status' => RequestStatus::InProgress,
+            'place_id' => $shop->id,
+            'assignee_id' => $admin->id,
+            'due_at' => Carbon::now()->addHours(3),
+            'items' => [
+                ['name' => 'Organic Whole Milk', 'quantity_asked' => '2 gal', 'quantity_got' => '2 gal', 'is_picked' => true],
+                ['name' => 'Free-range Eggs', 'quantity_asked' => '1 dozen', 'quantity_got' => '1 dozen', 'is_picked' => true],
+                ['name' => 'Sourdough Bread', 'quantity_asked' => '1 loaf', 'quantity_got' => '1 loaf', 'is_picked' => true],
+                ['name' => 'Organic Bananas', 'quantity_asked' => '1 bunch', 'quantity_got' => '1 bunch', 'is_picked' => true],
+            ],
+            'quantity' => '4 items',
+            'quantity_got' => '4 of 4 items picked',
+            'amount_minor' => 4_850_00,
+            'ledger_id' => $ledger->id,
+        ]);
+
+        // Financial Goals
+        $this->financialGoal($admin, [
+            'name' => 'Emergency Rainy Day Fund',
+            'category' => 'savings',
+            'target_amount_minor' => 100_000_00,
+            'current_amount_minor' => 45_000_00,
+            'currency' => 'USD',
+            'target_date' => Carbon::today()->addMonths(8),
+            'status' => 'active',
+            'notes' => '6 months of living expenses safely deposited in high-yield account',
+        ]);
+
+        $this->financialGoal($admin, [
+            'name' => 'Summer Family Beach Holiday',
+            'category' => 'vacation',
+            'target_amount_minor' => 35_000_00,
+            'current_amount_minor' => 20_000_00,
+            'currency' => 'USD',
+            'target_date' => Carbon::today()->addMonths(4),
+            'status' => 'active',
+            'notes' => 'Flights and coastal accommodation',
+        ]);
+
+        $this->financialGoal($admin, [
+            'name' => 'Home Solar & Energy Battery',
+            'category' => 'home_improvement',
+            'target_amount_minor' => 150_000_00,
+            'current_amount_minor' => 32_000_00,
+            'currency' => 'USD',
+            'target_date' => Carbon::today()->addMonths(14),
+            'status' => 'active',
+            'notes' => 'Roof solar array installation',
+        ]);
+
+        // Financial Liabilities (Mortgage, Vehicle Loan)
+        $this->financialLiability($admin, [
+            'name' => 'Primary Home Mortgage',
+            'type' => 'mortgage',
+            'lender' => 'Chase Home Finance',
+            'principal_amount_minor' => 340_000_00,
+            'remaining_balance_minor' => 285_000_00,
+            'monthly_payment_minor' => 18_500_00,
+            'interest_rate_bps' => 415,
+            'due_day_of_month' => 1,
+            'currency' => 'USD',
+            'status' => 'active',
+            'notes' => '30-year fixed rate mortgage',
+        ]);
+
+        $this->financialLiability($admin, [
+            'name' => 'Family Vehicle Loan',
+            'type' => 'loan',
+            'lender' => 'Ally Auto',
+            'principal_amount_minor' => 28_000_00,
+            'remaining_balance_minor' => 14_200_00,
+            'monthly_payment_minor' => 3_850_00,
+            'interest_rate_bps' => 375,
+            'due_day_of_month' => 15,
+            'currency' => 'USD',
+            'status' => 'active',
+        ]);
+
+        // Financial Assets (Real Estate, Cash, Investments)
+        $this->financialAsset($admin, [
+            'name' => 'Primary Family Residence',
+            'type' => 'real_estate',
+            'institution' => 'Zillow Valuation',
+            'balance_minor' => 460_000_00,
+            'currency' => 'USD',
+            'notes' => 'Estimated real estate market valuation',
+        ]);
+
+        $this->financialAsset($admin, [
+            'name' => 'High-Yield Savings Account',
+            'type' => 'cash',
+            'institution' => 'Marcus by Goldman Sachs',
+            'balance_minor' => 28_500_00,
+            'contribution_monthly_minor' => 5_000_00,
+            'return_rate_bps' => 450,
+            'currency' => 'USD',
+            'notes' => '4.5% APY compounding monthly',
+        ]);
+
+        $this->financialAsset($admin, [
+            'name' => 'S&P 500 Index Portfolio',
+            'type' => 'investment',
+            'institution' => 'Vanguard (VFIAX)',
+            'balance_minor' => 74_200_00,
+            'contribution_monthly_minor' => 6_000_00,
+            'return_rate_bps' => 850,
+            'currency' => 'USD',
+        ]);
+
+        // Financial Taxes
+        $this->financialTax($admin, [
+            'name' => 'Estimated Household Income Tax 2026',
+            'type' => 'income_tax',
+            'tax_year' => 2026,
+            'amount_minor' => 34_000_00,
+            'due_date' => Carbon::today()->addMonths(2),
+            'status' => 'pending',
+            'currency' => 'USD',
+            'notes' => 'Q4 estimated federal payment',
+        ]);
+
+        $this->financialTax($admin, [
+            'name' => 'Municipal Property Tax',
+            'type' => 'property_tax',
+            'tax_year' => 2026,
+            'amount_minor' => 18_500_00,
+            'due_date' => Carbon::today()->subMonths(1),
+            'status' => 'paid',
+            'paid_at' => Carbon::today()->subMonths(1),
+            'currency' => 'USD',
         ]);
 
         // Chores that come round on their own: a weekly one that reminds on
@@ -645,5 +804,76 @@ class DemoDataSeeder extends Seeder
         ], $attributes))->save();
 
         return $rule;
+    }
+
+    private function financialGoal(User $creator, array $attributes): FinancialGoal
+    {
+        $existing = FinancialGoal::query()->where('name', $attributes['name'])->first();
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        $goal = new FinancialGoal;
+        $goal->forceFill(array_merge([
+            'tenant_id' => $this->tenantId,
+            'created_by_id' => $creator->id,
+            'currency' => 'USD',
+            'status' => 'active',
+        ], $attributes))->save();
+
+        return $goal;
+    }
+
+    private function financialLiability(User $creator, array $attributes): FinancialLiability
+    {
+        $existing = FinancialLiability::query()->where('name', $attributes['name'])->first();
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        $liability = new FinancialLiability;
+        $liability->forceFill(array_merge([
+            'tenant_id' => $this->tenantId,
+            'created_by_id' => $creator->id,
+            'currency' => 'USD',
+            'status' => 'active',
+        ], $attributes))->save();
+
+        return $liability;
+    }
+
+    private function financialAsset(User $creator, array $attributes): FinancialAsset
+    {
+        $existing = FinancialAsset::query()->where('name', $attributes['name'])->first();
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        $asset = new FinancialAsset;
+        $asset->forceFill(array_merge([
+            'tenant_id' => $this->tenantId,
+            'created_by_id' => $creator->id,
+            'currency' => 'USD',
+        ], $attributes))->save();
+
+        return $asset;
+    }
+
+    private function financialTax(User $creator, array $attributes): FinancialTax
+    {
+        $existing = FinancialTax::query()->where('name', $attributes['name'])->first();
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        $tax = new FinancialTax;
+        $tax->forceFill(array_merge([
+            'tenant_id' => $this->tenantId,
+            'created_by_id' => $creator->id,
+            'currency' => 'USD',
+            'status' => 'pending',
+        ], $attributes))->save();
+
+        return $tax;
     }
 }

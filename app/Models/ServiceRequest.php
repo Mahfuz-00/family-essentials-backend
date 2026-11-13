@@ -16,7 +16,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * Illuminate\Http\Request in controller signatures.
  */
 #[Fillable([
-    'item_id', 'title', 'quantity', 'notes', 'category', 'priority',
+    'item_id', 'title', 'quantity', 'items', 'quantity_got', 'notes', 'category', 'priority',
     'store_name', 'place_id', 'assignee_id', 'due_at', 'snooze_until',
     'location_trigger_place_id', 'location_trigger_direction',
     // The ledger a request is charged to, and how much. `recurring_rule_id` and
@@ -36,6 +36,7 @@ class ServiceRequest extends Model
     protected function casts(): array
     {
         return [
+            'items' => 'array',
             'priority' => RequestPriority::class,
             'status' => RequestStatus::class,
             'location_trigger_direction' => GeofenceEventType::class,
@@ -48,6 +49,37 @@ class ServiceRequest extends Model
             'recurring_for' => 'date',
             'amount_minor' => 'integer',
         ];
+    }
+
+    /**
+     * Get the item list, synthesizing a single-item list from legacy title/quantity if items array is empty.
+     *
+     * @return array<int, array{name: string, quantity_asked: ?string, quantity_got: ?string, is_picked: bool}>
+     */
+    public function getItemsListAttribute(): array
+    {
+        $raw = $this->items;
+        if (is_array($raw) && ! empty($raw)) {
+            return array_map(function ($entry) {
+                return [
+                    'name' => (string) ($entry['name'] ?? $entry['title'] ?? ''),
+                    'quantity_asked' => isset($entry['quantity_asked']) ? (string) $entry['quantity_asked'] : ($entry['quantity'] ?? null),
+                    'quantity_got' => isset($entry['quantity_got']) ? (string) $entry['quantity_got'] : null,
+                    'is_picked' => (bool) ($entry['is_picked'] ?? false),
+                ];
+            }, $raw);
+        }
+
+        if (filled($this->title)) {
+            return [[
+                'name' => (string) $this->title,
+                'quantity_asked' => $this->quantity,
+                'quantity_got' => $this->quantity_got,
+                'is_picked' => $this->status === RequestStatus::Completed,
+            ]];
+        }
+
+        return [];
     }
 
     public function item(): BelongsTo

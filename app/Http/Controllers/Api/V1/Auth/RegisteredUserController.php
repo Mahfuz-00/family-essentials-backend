@@ -17,9 +17,16 @@ class RegisteredUserController extends Controller
     {
         $user = User::create($request->safe()->only(['name', 'email', 'phone', 'password']));
 
+        $currency = strtoupper((string) ($request->input('currency') ?: 'USD'));
+        $monthlyBudget = $request->input('monthly_budget_minor');
+        $yearlyBudget = $request->input('yearly_budget_minor');
+
         $tenant = $provisioner->provision(
             name: (string) ($request->input('household_name') ?: $user->name."'s Household"),
             owner: $user,
+            currency: $currency,
+            monthlyBudgetMinor: $monthlyBudget !== null ? (int) $monthlyBudget : null,
+            yearlyBudgetMinor: $yearlyBudget !== null ? (int) $yearlyBudget : null,
         );
 
         $user->forceFill(['active_tenant_id' => $tenant->id])->save();

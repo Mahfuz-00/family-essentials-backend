@@ -17,6 +17,17 @@ class StoreRequestRequest extends FormRequest
         return true;
     }
 
+    protected function prepareForValidation(): void
+    {
+        $items = $this->input('items');
+        if (blank($this->input('title')) && is_array($items) && ! empty($items)) {
+            $names = array_filter(array_map(fn ($item) => $item['name'] ?? null, $items));
+            if (! empty($names)) {
+                $this->merge(['title' => implode(', ', array_slice($names, 0, 3)) . (count($names) > 3 ? '...' : '')]);
+            }
+        }
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -27,8 +38,14 @@ class StoreRequestRequest extends FormRequest
             // `required_without` treats a present-but-null item_id as present, which
             // made title optional and then dereferenced it. requiredIf on blank is
             // the correct rule.
-            'title' => ['nullable', 'string', 'max:255', Rule::requiredIf(fn (): bool => blank($this->input('item_id')))],
+            'title' => ['nullable', 'string', 'max:255', Rule::requiredIf(fn (): bool => blank($this->input('item_id')) && blank($this->input('items')))],
             'quantity' => ['nullable', 'string', 'max:64'],
+            'quantity_got' => ['nullable', 'string', 'max:64'],
+            'items' => ['nullable', 'array'],
+            'items.*.name' => ['required_with:items', 'string', 'max:255'],
+            'items.*.quantity_asked' => ['nullable', 'string', 'max:64'],
+            'items.*.quantity_got' => ['nullable', 'string', 'max:64'],
+            'items.*.is_picked' => ['nullable', 'boolean'],
             'notes' => ['nullable', 'string', 'max:2000'],
             'category' => ['nullable', 'string', 'max:64'],
             'priority' => ['nullable', Rule::enum(RequestPriority::class)],

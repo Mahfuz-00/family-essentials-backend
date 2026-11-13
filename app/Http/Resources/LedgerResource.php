@@ -26,6 +26,9 @@ class LedgerResource extends JsonResource
             // row, the second with a system count.
             'my_role' => $this->myRole()?->value,
             'member_count' => (int) ($this->member_count ?? 0),
+            'monthly_budget_minor' => $this->monthly_budget_minor,
+            'weekly_budget_minor' => $this->weekly_budget_minor,
+            'yearly_budget_minor' => $this->yearly_budget_minor,
             'created_at' => $this->created_at?->toISOString(),
         ];
     }

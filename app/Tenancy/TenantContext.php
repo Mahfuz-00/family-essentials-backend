@@ -2,6 +2,8 @@
 
 namespace App\Tenancy;
 
+use App\Models\Tenant;
+
 /**
  * Per-request tenant context. Backed by a container singleton and mirrored into
  * PostgreSQL session GUCs by {@see TenantGucs}.
@@ -14,6 +16,8 @@ class TenantContext
 {
     private ?int $tenantId = null;
 
+    private ?Tenant $tenant = null;
+
     private ?int $userId = null;
 
     private bool $bypassed = false;
@@ -21,6 +25,15 @@ class TenantContext
     public function id(): ?int
     {
         return $this->tenantId;
+    }
+
+    public function tenant(): ?Tenant
+    {
+        if ($this->tenant !== null && $this->tenant->id === $this->tenantId) {
+            return $this->tenant;
+        }
+
+        return $this->tenantId !== null ? Tenant::find($this->tenantId) : null;
     }
 
     public function userId(): ?int
@@ -44,6 +57,7 @@ class TenantContext
     public function set(?int $tenantId): void
     {
         $this->tenantId = $tenantId;
+        $this->tenant = null;
     }
 
     public function bypass(bool $bypassed = true): void
@@ -59,6 +73,7 @@ class TenantContext
     public function reset(): void
     {
         $this->tenantId = null;
+        $this->tenant = null;
         $this->userId = null;
         $this->bypassed = false;
     }

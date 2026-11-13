@@ -56,7 +56,9 @@ class RequestActionController extends Controller
     {
         $this->authorize('respond', $serviceRequest);
 
-        return $this->respond($workflow->complete($serviceRequest, $request->user()));
+        $attributes = $request->only(['quantity_got', 'items', 'amount_minor', 'ledger_id']);
+
+        return $this->respond($workflow->complete($serviceRequest, $request->user(), $attributes));
     }
 
     public function cancel(Request $request, ServiceRequest $serviceRequest, RequestWorkflow $workflow): JsonResponse
