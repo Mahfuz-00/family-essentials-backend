@@ -20,6 +20,9 @@ use Illuminate\Support\Carbon;
     'cadence_days',
     'threshold',
     'stock_level',
+    'unit_price_minor',
+    'last_spent_minor',
+    'total_spent_minor',
     'last_restocked_at',
     'is_active',
     'created_by',
@@ -38,6 +41,9 @@ class Essential extends Model
         'cadence_days' => 14,
         'threshold' => 1,
         'stock_level' => 0,
+        'unit_price_minor' => 0,
+        'last_spent_minor' => 0,
+        'total_spent_minor' => 0,
         'is_active' => true,
     ];
 
@@ -52,6 +58,9 @@ class Essential extends Model
             'cadence_days' => 'integer',
             'threshold' => 'integer',
             'stock_level' => 'integer',
+            'unit_price_minor' => 'integer',
+            'last_spent_minor' => 'integer',
+            'total_spent_minor' => 'integer',
         ];
     }
 

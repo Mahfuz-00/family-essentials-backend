@@ -24,6 +24,9 @@ class StoreEssentialRequest extends FormRequest
             'cadence_days' => ['sometimes', 'integer', 'min:1', 'max:365'],
             'threshold' => ['sometimes', 'integer', 'min:0', 'max:99'],
             'stock_level' => ['sometimes', 'integer', 'min:0', 'max:999'],
+            'unit_price_minor' => ['sometimes', 'integer', 'min:0'],
+            'last_spent_minor' => ['sometimes', 'integer', 'min:0'],
+            'total_spent_minor' => ['sometimes', 'integer', 'min:0'],
         ];
     }
 }

@@ -145,9 +145,10 @@ class QuotaService
             ),
             $this->meter('places', 'Saved places', $usage['places'], (int) $plan['place_cap'], 'pin_drop'),
             $this->meter('requests', 'Requests this month', $usage['requests_this_month'], (int) $plan['monthly_requests'], 'shopping_bag'),
+            $this->meter('pantry', 'Tracked Pantry items', $usage['essentials'], (int) ($plan['pantry_items_cap'] ?? 100), 'inventory_2'),
             // Global bound, configured in config/voice.php and enforced by the
             // escalation policy rather than by this service.
-            $this->meter('voice', 'Voice calls today', $usage['voice_calls_today'], (int) config('voice.daily_budget'), 'ring_volume'),
+            $this->meter('voice', 'Member calls / voice today', $usage['voice_calls_today'], (int) ($plan['member_calls_cap'] ?? config('voice.daily_budget')), 'ring_volume'),
         ];
 
         return [

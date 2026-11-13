@@ -290,6 +290,7 @@ Route::prefix('v1')->group(function () {
         Route::get('voice-calls/quota', [VoiceCallController::class, 'quota']);
         Route::get('voice-calls', [VoiceCallController::class, 'index']);
         Route::post('requests/{serviceRequest}/voice-escalation', [VoiceCallController::class, 'store']);
+        Route::post('members/{targetMember}/call', [VoiceCallController::class, 'directCall']);
 
         // ---- Recurring rules --------------------------------------------
         // A rule is turned into a fresh request each cycle by
@@ -333,6 +334,7 @@ Route::prefix('v1')->group(function () {
         Route::post('billing/portal', [InvoiceController::class, 'createPortalSession']);
         Route::post('billing/change-plan-preview', [InvoiceController::class, 'changePlanPreview']);
         Route::post('billing/upgrade', [InvoiceController::class, 'simulateUpgrade']);
+        Route::post('billing/cancel', [InvoiceController::class, 'cancelSubscription']);
         Route::get('billing/refund-policy', [PlatformRefundController::class, 'publicPolicy']);
         Route::post('billing/refund-request', [PlatformRefundController::class, 'submitTenantRefundRequest']);
 

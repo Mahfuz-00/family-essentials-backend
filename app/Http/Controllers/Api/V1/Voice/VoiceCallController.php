@@ -61,4 +61,68 @@ class VoiceCallController extends Controller
             'cooldown_minutes' => (int) config('voice.cooldown_minutes'),
         ]);
     }
+
+    /**
+     * Direct call to a household member, governed by plan quotas.
+     */
+    public function directCall(Request $request, \App\Models\User $targetMember): JsonResponse
+    {
+        $tenantId = app(\App\Tenancy\TenantContext::class)->id();
+        $tenant = \App\Models\Tenant::find($tenantId);
+        $caller = $request->user();
+
+        $quotaService = app(\App\Plans\QuotaService::class);
+        $plan = $quotaService->planFor($tenant?->subscription_tier);
+        $callCap = (int) ($plan['member_calls_cap'] ?? 0);
+
+        if ($callCap <= 0) {
+            return response()->json([
+                'message' => 'Direct member calling is not included in the ' . ($plan['label'] ?? 'Starter') . ' plan. Please upgrade to Household Pro to call family members.',
+                'code' => 'plan_limit_exceeded',
+                'quota' => 0,
+                'used' => 0,
+            ], 403);
+        }
+
+        $usedThisMonth = VoiceCallLog::query()
+            ->where('tenant_id', $tenantId)
+            ->where('created_at', '>=', now()->startOfMonth())
+            ->whereNotIn('status', ['skipped'])
+            ->count();
+
+        if ($usedThisMonth >= $callCap) {
+            return response()->json([
+                'message' => "Monthly member call quota of {$callCap} calls reached for your household plan. Please upgrade to increase your limit.",
+                'code' => 'plan_limit_exceeded',
+                'quota' => $callCap,
+                'used' => $usedThisMonth,
+            ], 403);
+        }
+
+        $phone = $targetMember->phone;
+
+        $call = VoiceCallLog::create([
+            'tenant_id' => $tenantId,
+            'user_id' => $targetMember->id,
+            'phone' => $phone ?? '+10000000000',
+            'status' => 'completed',
+            'reason' => 'Direct household member call',
+            'attempt' => 1,
+            'created_at' => now(),
+        ]);
+
+        app(AuditRecorder::class)->record('voice.member_call_placed', [
+            'caller' => $caller->name,
+            'target' => $targetMember->name,
+            'phone' => $phone ? (substr($phone, 0, 3) . '***' . substr($phone, -4)) : 'Direct',
+        ], 'info');
+
+        return response()->json([
+            'message' => "Call initiated to {$targetMember->name}.",
+            'phone' => $phone,
+            'call_id' => $call->id,
+            'remaining_calls' => max(0, $callCap - $usedThisMonth - 1),
+            'quota' => $callCap,
+        ]);
+    }
 }

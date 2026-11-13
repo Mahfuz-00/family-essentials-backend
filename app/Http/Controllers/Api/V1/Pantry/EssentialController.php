@@ -36,6 +36,8 @@ class EssentialController extends Controller
             'due' => $due->count(),
             'safety_stock' => $due->filter(fn (Essential $item) => $item->dueReason() === 'safety_stock')->count(),
             'cadence' => $due->filter(fn (Essential $item) => $item->dueReason() === 'cadence')->count(),
+            'total_spent_minor' => (int) $essentials->sum('total_spent_minor'),
+            'projected_restock_minor' => (int) $due->sum(fn ($item) => max(0, $item->threshold - $item->stock_level) * (int) ($item->unit_price_minor ?? 0)),
         ];
 
         if ($request->boolean('due_only')) {
@@ -62,6 +64,7 @@ class EssentialController extends Controller
             ...$request->safe()->only([
                 'name', 'category', 'default_store', 'pack_size',
                 'cadence_days', 'threshold', 'stock_level',
+                'unit_price_minor', 'last_spent_minor', 'total_spent_minor',
             ]),
             'created_by' => $request->user()->getKey(),
         ]);
@@ -94,8 +97,16 @@ class EssentialController extends Controller
     {
         $this->authorize('restock', $essential);
 
+        $qty = $request->integer('quantity', 1);
+        $spent = $request->integer('spent_minor', 0);
+        if ($spent <= 0 && $essential->unit_price_minor > 0) {
+            $spent = $essential->unit_price_minor * $qty;
+        }
+
         $essential->update([
-            'stock_level' => (int) $essential->stock_level + $request->integer('quantity'),
+            'stock_level' => (int) $essential->stock_level + $qty,
+            'last_spent_minor' => $spent,
+            'total_spent_minor' => (int) $essential->total_spent_minor + $spent,
             'last_restocked_at' => now(),
         ]);
 
