@@ -90,7 +90,7 @@ class VoiceEscalationService
         $parts = array_values(array_filter([$request->quantity, $request->store_name]));
 
         return trim(sprintf(
-            'Reminder from Family Essentials: %s%s',
+            'Reminder from FairShare: %s%s',
             $request->title,
             $parts === [] ? '' : ' ('.implode(', ', $parts).')',
         ));

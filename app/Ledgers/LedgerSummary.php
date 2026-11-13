@@ -116,10 +116,12 @@ final class LedgerSummary
             ];
         })->all();
 
-        // Sub-buckets breakdown (monthly breakdown for yearly periods, weekly for monthly/weekly)
-        $weeklyBreakdown = $periodType === 'yearly'
-            ? self::computeMonthlyBreakdown($ledger, $from, $to)
-            : self::computeWeeklyBreakdown($ledger, $from, $to);
+        // Sub-buckets breakdown (monthly for yearly, daily for weekly, weekly for monthly)
+        $weeklyBreakdown = match ($periodType) {
+            'yearly' => self::computeMonthlyBreakdown($ledger, $from, $to),
+            'weekly' => self::computeDailyBreakdown($ledger, $from, $to),
+            default => self::computeWeeklyBreakdown($ledger, $from, $to),
+        };
 
         return new self(
             ledgerId: (int) $ledger->getKey(),
@@ -223,6 +225,45 @@ final class LedgerSummary
             ];
 
             $cursor->addMonth();
+        }
+
+        return $breakdown;
+    }
+
+    /**
+     * Compute daily sub-buckets within the weekly period (7 days).
+     *
+     * @return array<int, array{week_label: string, start_date: string, end_date: string, expense_minor: int, income_minor: int, net_minor: int}>
+     */
+    private static function computeDailyBreakdown(Ledger $ledger, Carbon $from, Carbon $to): array
+    {
+        $breakdown = [];
+        $cursor = $from->copy()->startOfDay();
+        $end = $to->copy()->startOfDay();
+
+        while ($cursor->lte($end)) {
+            $dayDate = $cursor->toDateString();
+
+            $dTotals = LedgerEntry::query()
+                ->where('ledger_id', $ledger->getKey())
+                ->whereDate('occurred_on', $dayDate)
+                ->selectRaw("coalesce(sum(case when direction = 'expense' then amount_minor else 0 end), 0) as expense_minor")
+                ->selectRaw("coalesce(sum(case when direction = 'income' then amount_minor else 0 end), 0) as income_minor")
+                ->first();
+
+            $dExpense = (int) ($dTotals->expense_minor ?? 0);
+            $dIncome = (int) ($dTotals->income_minor ?? 0);
+
+            $breakdown[] = [
+                'week_label' => $cursor->format('D, M j'),
+                'start_date' => $dayDate,
+                'end_date' => $dayDate,
+                'expense_minor' => $dExpense,
+                'income_minor' => $dIncome,
+                'net_minor' => $dIncome - $dExpense,
+            ];
+
+            $cursor->addDay();
         }
 
         return $breakdown;

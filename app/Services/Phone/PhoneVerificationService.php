@@ -23,7 +23,7 @@ class PhoneVerificationService
 
         $this->sms->send(
             (string) $user->phone,
-            "Your Family Essentials verification code is {$code}."
+            "Your FairShare verification code is {$code}."
         );
     }
 

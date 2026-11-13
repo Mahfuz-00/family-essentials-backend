@@ -129,7 +129,7 @@ class PlatformElevationTest extends TestCase
             ->assertHeader('Content-Type', 'text/calendar; charset=utf-8');
 
         $this->assertStringContainsString('BEGIN:VCALENDAR', $icsResp->getContent());
-        $this->assertStringContainsString('PRODID:-//FairShare//Family Essentials Calendar//EN', $icsResp->getContent());
+        $this->assertStringContainsString('PRODID:-//FairShare//FairShare Calendar//EN', $icsResp->getContent());
     }
 
     public function test_nlp_dispatcher_quick_add_parsing(): void

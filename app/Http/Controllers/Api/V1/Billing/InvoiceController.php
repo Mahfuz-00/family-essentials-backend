@@ -545,29 +545,4 @@ class InvoiceController extends Controller
             'invoice' => $invoice,
         ], 201);
     }
-
-    public function cancelSubscription(Request $request): JsonResponse
-    {
-        $tenant = $this->currentTenant();
-
-        $tenant->update([
-            'subscription_tier' => 'cancelled',
-            'status' => 'cancelled',
-        ]);
-
-        $this->audit->record('billing.subscription_cancelled', [
-            'tenant_id' => $tenant->id,
-            'previous_tier' => $tenant->getOriginal('subscription_tier'),
-        ], 'warning');
-
-        // Revoke user tokens to immediately log user out
-        if ($user = $request->user()) {
-            $user->tokens()->delete();
-        }
-
-        return response()->json([
-            'message' => 'Subscription cancelled successfully. You have been logged out.',
-            'status' => 'cancelled',
-        ]);
-    }
 }

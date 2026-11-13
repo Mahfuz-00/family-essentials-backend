@@ -11,6 +11,7 @@ use App\Http\Resources\LedgerEntryResource;
 use App\Models\Ledger;
 use App\Models\LedgerEntry;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
 /**
@@ -22,15 +23,32 @@ class LedgerEntryController extends Controller
 {
     public function __construct(private readonly AuditRecorder $audit) {}
 
-    public function index(Ledger $ledger): JsonResponse
+    public function index(Request $request, Ledger $ledger): JsonResponse
     {
         $this->authorize('viewEntries', $ledger);
 
-        $entries = $ledger->entries()
-            ->with('payer')
+        $query = $ledger->entries()->with('payer');
+
+        if ($request->filled('from')) {
+            $query->whereDate(
+                'occurred_on',
+                '>=',
+                Carbon::parse($request->string('from')->toString())->toDateString()
+            );
+        }
+
+        if ($request->filled('to')) {
+            $query->whereDate(
+                'occurred_on',
+                '<=',
+                Carbon::parse($request->string('to')->toString())->toDateString()
+            );
+        }
+
+        $entries = $query
             ->orderByDesc('occurred_on')
             ->orderByDesc('id')
-            ->paginate(50);
+            ->paginate(100);
 
         return LedgerEntryResource::collection($entries)->response();
     }
