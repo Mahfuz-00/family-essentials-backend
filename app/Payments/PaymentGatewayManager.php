@@ -13,6 +13,7 @@ final class PaymentGatewayManager
             'stripe' => app(StripeGateway::class),
             'paypal' => app(PayPalGateway::class),
             'razorpay' => app(RazorpayGateway::class),
+            'sslcommerz' => app(SslCommerzGateway::class),
             default => throw new InvalidArgumentException("Unsupported payment gateway [{$key}]."),
         };
     }

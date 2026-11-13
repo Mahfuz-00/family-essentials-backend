@@ -363,6 +363,30 @@ class SettingsController extends Controller
             ]);
         }
 
+        if ($gateway === 'sslcommerz') {
+            $storeId = config('services.sslcommerz.store_id');
+            $storePassword = config('services.sslcommerz.store_password');
+
+            if (! is_string($storeId) || $storeId === '' || ! is_string($storePassword) || $storePassword === '') {
+                return response()->json([
+                    'status' => 'unconfigured',
+                    'gateway' => 'sslcommerz',
+                    'message' => 'SSLCOMMERZ_STORE_ID and SSLCOMMERZ_STORE_PASSWD are not set.',
+                ], 422);
+            }
+
+            $sslMode = config('services.sslcommerz.mode', 'sandbox') === 'live' ? 'live' : 'sandbox';
+
+            return response()->json([
+                'status' => 'connected',
+                'gateway' => 'sslcommerz',
+                'mode' => $sslMode,
+                'latency_ms' => 0,
+                'message' => 'SSLCommerz credentials are present. SSLCommerz has no ping endpoint; the first session validates them.',
+                'timestamp' => now()->toIso8601String(),
+            ]);
+        }
+
         if ($gateway === 'cash') {
             return response()->json([
                 'status' => 'connected',
