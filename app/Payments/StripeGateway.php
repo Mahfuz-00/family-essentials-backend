@@ -21,6 +21,11 @@ final class StripeGateway implements PaymentGateway
 
     private const SIGNATURE_TOLERANCE_SECONDS = 300;
 
+    public function __construct(
+        private readonly GatewayCredentials $credentials,
+        private readonly ?string $mode = null,
+    ) {}
+
     public function key(): string
     {
         return 'stripe';
@@ -28,12 +33,12 @@ final class StripeGateway implements PaymentGateway
 
     public function isConfigured(): bool
     {
-        return $this->secret() !== null && $this->webhookSecret() !== null;
+        return $this->credentials->isConfigured($this->key(), $this->mode());
     }
 
     public function mode(): string
     {
-        return str_starts_with((string) $this->secret(), 'sk_live_') ? 'live' : 'sandbox';
+        return $this->mode ?? $this->credentials->clientMode($this->key());
     }
 
     public function createCheckout(Invoice $invoice, string $successUrl, string $cancelUrl): CheckoutSession
@@ -89,6 +94,45 @@ final class StripeGateway implements PaymentGateway
         }
 
         return new CheckoutSession($id, $url, $this->key(), $this->mode());
+    }
+
+    public function verifyTestPayment(string $reference): array
+    {
+        $secret = $this->secret();
+
+        if ($secret === null) {
+            return ['status' => 'unknown', 'message' => 'Stripe is not configured: the secret key is missing.'];
+        }
+
+        try {
+            $response = Http::withToken($secret)
+                ->acceptJson()
+                ->timeout(20)
+                ->get(self::API_BASE.'/checkout/sessions/'.rawurlencode($reference));
+        } catch (ConnectionException $exception) {
+            return ['status' => 'unknown', 'message' => 'Could not reach Stripe: '.$exception->getMessage()];
+        }
+
+        if ($response->failed()) {
+            return [
+                'status' => 'unknown',
+                'message' => 'Stripe rejected the status lookup: '
+                    .($response->json('error.message') ?? 'HTTP '.$response->status()),
+            ];
+        }
+
+        $paymentStatus = $response->json('payment_status');
+        $status = $response->json('status');
+
+        if ($paymentStatus === 'paid' || $status === 'complete') {
+            return ['status' => 'paid', 'message' => 'Stripe confirms the checkout session was paid.'];
+        }
+
+        if ($status === 'expired') {
+            return ['status' => 'failed', 'message' => 'The Stripe checkout session expired before it was paid.'];
+        }
+
+        return ['status' => 'pending', 'message' => 'Stripe is still waiting for the payment.'];
     }
 
     public function verifyWebhook(Request $request): PaymentEvent
@@ -168,14 +212,14 @@ final class StripeGateway implements PaymentGateway
 
     private function secret(): ?string
     {
-        $secret = config('services.stripe.secret');
+        $secret = $this->credentials->resolve($this->key(), $this->mode())['secret_key'] ?? null;
 
         return is_string($secret) && $secret !== '' ? $secret : null;
     }
 
     private function webhookSecret(): ?string
     {
-        $secret = config('services.stripe.webhook_secret');
+        $secret = $this->credentials->resolve($this->key(), $this->mode())['webhook_secret'] ?? null;
 
         return is_string($secret) && $secret !== '' ? $secret : null;
     }

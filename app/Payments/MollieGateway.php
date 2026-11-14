@@ -3,6 +3,7 @@
 namespace App\Payments;
 
 use App\Models\Invoice;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
@@ -18,6 +19,11 @@ final class MollieGateway implements PaymentGateway
 {
     private const API_BASE = 'https://api.mollie.com/v2';
 
+    public function __construct(
+        private readonly GatewayCredentials $credentials,
+        private readonly ?string $mode = null,
+    ) {}
+
     public function key(): string
     {
         return 'mollie';
@@ -25,12 +31,12 @@ final class MollieGateway implements PaymentGateway
 
     public function isConfigured(): bool
     {
-        return $this->apiKey() !== null;
+        return $this->credentials->isConfigured($this->key(), $this->mode());
     }
 
     public function mode(): string
     {
-        return str_starts_with((string) $this->apiKey(), 'live_') ? 'live' : 'sandbox';
+        return $this->mode ?? $this->credentials->clientMode($this->key());
     }
 
     public function createCheckout(Invoice $invoice, string $successUrl, string $cancelUrl): CheckoutSession
@@ -46,7 +52,7 @@ final class MollieGateway implements PaymentGateway
                 ],
                 'description' => sprintf('FairShare %s plan (%s)', $invoice->tier, $invoice->billing_period),
                 'redirectUrl' => $successUrl,
-                'webhookUrl' => (string) config('services.mollie.webhook_url', url('/api/v1/webhooks/payments/mollie')),
+                'webhookUrl' => $this->webhookUrl(),
                 'sequenceType' => 'oneoff',
                 'metadata' => [
                     'invoice_id' => (string) $invoice->getKey(),
@@ -73,6 +79,44 @@ final class MollieGateway implements PaymentGateway
         }
 
         return new CheckoutSession($id, $url, $this->key(), $this->mode());
+    }
+
+    public function verifyTestPayment(string $reference): array
+    {
+        $apiKey = $this->apiKey();
+
+        if ($apiKey === null) {
+            return ['status' => 'unknown', 'message' => 'Mollie is not configured: the API key is missing.'];
+        }
+
+        try {
+            $response = Http::withToken($apiKey)
+                ->acceptJson()
+                ->timeout(20)
+                ->get(self::API_BASE.'/payments/'.rawurlencode($reference));
+        } catch (ConnectionException $exception) {
+            return ['status' => 'unknown', 'message' => 'Could not reach Mollie: '.$exception->getMessage()];
+        }
+
+        if ($response->failed()) {
+            return [
+                'status' => 'unknown',
+                'message' => 'Mollie rejected the status lookup: '
+                    .($response->json('detail') ?? 'HTTP '.$response->status()),
+            ];
+        }
+
+        $status = strtolower((string) $response->json('status'));
+
+        if ($status === 'paid') {
+            return ['status' => 'paid', 'message' => 'Mollie confirms the payment was paid.'];
+        }
+
+        if (in_array($status, ['failed', 'canceled', 'expired'], true)) {
+            return ['status' => 'failed', 'message' => "The Mollie payment ended as {$status}."];
+        }
+
+        return ['status' => 'pending', 'message' => 'Mollie is still waiting for the payment.'];
     }
 
     public function verifyWebhook(Request $request): PaymentEvent
@@ -120,8 +164,17 @@ final class MollieGateway implements PaymentGateway
 
     private function apiKey(): ?string
     {
-        $value = config('services.mollie.api_key');
+        $value = $this->credentials->resolve($this->key(), $this->mode())['api_key'] ?? null;
 
         return is_string($value) && $value !== '' ? $value : null;
+    }
+
+    private function webhookUrl(): string
+    {
+        $value = $this->credentials->resolve($this->key(), $this->mode())['webhook_url'] ?? null;
+
+        return is_string($value) && $value !== ''
+            ? $value
+            : url('/api/v1/webhooks/payments/mollie');
     }
 }

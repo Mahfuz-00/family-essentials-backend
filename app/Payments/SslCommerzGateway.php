@@ -3,6 +3,7 @@
 namespace App\Payments;
 
 use App\Models\Invoice;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
@@ -16,6 +17,11 @@ use RuntimeException;
  */
 final class SslCommerzGateway implements PaymentGateway
 {
+    public function __construct(
+        private readonly GatewayCredentials $credentials,
+        private readonly ?string $mode = null,
+    ) {}
+
     public function key(): string
     {
         return 'sslcommerz';
@@ -23,12 +29,12 @@ final class SslCommerzGateway implements PaymentGateway
 
     public function isConfigured(): bool
     {
-        return $this->storeId() !== null && $this->storePassword() !== null;
+        return $this->credentials->isConfigured($this->key(), $this->mode());
     }
 
     public function mode(): string
     {
-        return config('services.sslcommerz.mode', 'sandbox') === 'live' ? 'live' : 'sandbox';
+        return $this->mode ?? $this->credentials->clientMode($this->key());
     }
 
     public function createCheckout(Invoice $invoice, string $successUrl, string $cancelUrl): CheckoutSession
@@ -86,7 +92,68 @@ final class SslCommerzGateway implements PaymentGateway
             throw new RuntimeException('SSLCommerz returned no GatewayPageURL.');
         }
 
-        return new CheckoutSession((string) $sessionKey, $url, $this->key(), $this->mode());
+        // A payment is looked up by `tran_id`, not by the session key, so the
+        // session carries the transaction id as its reference.
+        return new CheckoutSession((string) $sessionKey, $url, $this->key(), $this->mode(), $tranId);
+    }
+
+    public function verifyTestPayment(string $reference): array
+    {
+        $storeId = $this->storeId();
+        $storePassword = $this->storePassword();
+
+        if ($storeId === null || $storePassword === null) {
+            return ['status' => 'unknown', 'message' => 'SSLCommerz is not configured: the store id or store password is missing.'];
+        }
+
+        try {
+            $response = Http::acceptJson()->timeout(20)->get(
+                $this->base().'/validator/api/merchantTransIDvalidationAPI.php',
+                [
+                    'tran_id' => $reference,
+                    'store_id' => $storeId,
+                    'store_passwd' => $storePassword,
+                    'format' => 'json',
+                    'v' => 1,
+                ],
+            );
+        } catch (ConnectionException $exception) {
+            return ['status' => 'unknown', 'message' => 'Could not reach SSLCommerz: '.$exception->getMessage()];
+        }
+
+        $payload = $response->json();
+
+        if ($response->failed() || ! is_array($payload)) {
+            return [
+                'status' => 'unknown',
+                'message' => 'SSLCommerz rejected the status lookup: HTTP '.$response->status(),
+            ];
+        }
+
+        // The transaction-query API nests the record under `element` (an array of
+        // one, or a single object); the top-level `status` is empty for it.
+        $element = $payload['element'] ?? null;
+        $record = null;
+
+        if (is_array($element)) {
+            $candidate = $element[0] ?? $element;
+            $record = is_array($candidate) ? $candidate : null;
+        }
+
+        $status = strtoupper((string) ($record['status'] ?? $payload['status'] ?? ''));
+
+        if (in_array($status, ['VALID', 'VALIDATED'], true)) {
+            return ['status' => 'paid', 'message' => 'SSLCommerz validated the transaction.'];
+        }
+
+        if (in_array($status, ['FAILED', 'CANCELLED'], true)) {
+            return ['status' => 'failed', 'message' => "SSLCommerz reports the transaction as {$status}."];
+        }
+
+        return [
+            'status' => 'pending',
+            'message' => 'SSLCommerz has no completed transaction yet: '.($status ?: 'unknown status').'.',
+        ];
     }
 
     public function verifyWebhook(Request $request): PaymentEvent
@@ -147,14 +214,14 @@ final class SslCommerzGateway implements PaymentGateway
 
     private function storeId(): ?string
     {
-        $value = config('services.sslcommerz.store_id');
+        $value = $this->credentials->resolve($this->key(), $this->mode())['store_id'] ?? null;
 
         return is_string($value) && $value !== '' ? $value : null;
     }
 
     private function storePassword(): ?string
     {
-        $value = config('services.sslcommerz.store_password');
+        $value = $this->credentials->resolve($this->key(), $this->mode())['store_passwd'] ?? null;
 
         return is_string($value) && $value !== '' ? $value : null;
     }

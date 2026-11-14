@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V1\Auth\PasswordResetLinkController;
 use App\Http\Controllers\Api\V1\Auth\PhoneVerificationController;
 use App\Http\Controllers\Api\V1\Auth\RegisteredUserController;
 use App\Http\Controllers\Api\V1\Auth\TenantMembershipController;
+use App\Http\Controllers\Api\V1\Calendar\CalendarFeedController;
 use App\Http\Controllers\Api\V1\Feedback\FeedbackController;
 use App\Http\Controllers\Api\V1\Finances\FinancialAssetController;
 use App\Http\Controllers\Api\V1\Finances\FinancialGoalController;
@@ -26,6 +27,7 @@ use App\Http\Controllers\Api\V1\Notifications\NotificationLogController;
 use App\Http\Controllers\Api\V1\Pantry\EssentialController;
 use App\Http\Controllers\Api\V1\Places\GeofenceController;
 use App\Http\Controllers\Api\V1\Places\PlaceController;
+use App\Http\Controllers\Api\V1\Platform\RefundController as PlatformRefundController;
 use App\Http\Controllers\Api\V1\Billing\InvoiceController;
 use App\Http\Controllers\Api\V1\Billing\PaymentCheckoutController;
 use App\Http\Controllers\Api\V1\ProfileController;
@@ -36,7 +38,9 @@ use App\Http\Controllers\Api\V1\Requests\RequestActionController;
 use App\Http\Controllers\Api\V1\Requests\RequestBoardController;
 use App\Http\Controllers\Api\V1\Requests\RequestController;
 use App\Http\Controllers\Api\V1\Tenant\HouseholdChatController;
+use App\Http\Controllers\Api\V1\Tenant\InvitationController as TenantInvitationController;
 use App\Http\Controllers\Api\V1\Tenant\MemberController as TenantMemberController;
+use App\Http\Controllers\Api\V1\Tenant\RoleController as TenantRoleController;
 use App\Http\Controllers\Api\V1\Tenant\QuotaController as TenantQuotaController;
 use App\Http\Controllers\Api\V1\Tenant\TenantController as CurrentTenantController;
 use App\Http\Controllers\Api\V1\Voice\VoiceCallController;
@@ -73,6 +77,7 @@ Route::prefix('v1')->group(function () {
         Route::middleware(['auth:sanctum', 'abilities:mobile'])->group(function () {
             Route::get('me', [ProfileController::class, 'show']);
             Route::patch('me', [ProfileController::class, 'update']);
+            Route::post('me/password', [ProfileController::class, 'updatePassword']);
             Route::post('logout', [AuthenticatedSessionController::class, 'destroy']);
 
             Route::patch('voice-consent', [VoiceConsentController::class, 'update']);
@@ -98,8 +103,17 @@ Route::prefix('v1')->group(function () {
     Route::middleware(['auth:sanctum', 'abilities:mobile', 'tenant'])->group(function () {
         Route::get('tenant', [CurrentTenantController::class, 'show']);
         Route::patch('tenant', [CurrentTenantController::class, 'update']);
+        Route::get('tenant/export', [CurrentTenantController::class, 'export']);
 
         Route::get('tenant/members', [TenantMemberController::class, 'index']);
+        Route::patch('tenant/members/{user}', [TenantMemberController::class, 'update']);
+        Route::delete('tenant/members/{user}', [TenantMemberController::class, 'destroy']);
+
+        Route::get('tenant/roles', [TenantRoleController::class, 'index']);
+
+        Route::get('tenant/invitations', [TenantInvitationController::class, 'index']);
+        Route::post('tenant/invitations', [TenantInvitationController::class, 'store']);
+        Route::delete('tenant/invitations/{invitation}', [TenantInvitationController::class, 'destroy']);
 
         // Plan limits and live usage.
         Route::get('tenant/quotas', [TenantQuotaController::class, 'index']);
@@ -172,6 +186,7 @@ Route::prefix('v1')->group(function () {
         Route::post('billing/upgrade', [InvoiceController::class, 'simulateUpgrade']);
         Route::post('billing/checkout-session', [PaymentCheckoutController::class, 'store']);
         Route::post('billing/cancel', [InvoiceController::class, 'cancelSubscription']);
+        Route::post('billing/refund-request', [PlatformRefundController::class, 'submitTenantRefundRequest']);
 
         // ---- Recurring rules --------------------------------------------
         // The app manages the same rules the dashboard does; the daily command
@@ -197,6 +212,9 @@ Route::prefix('v1')->group(function () {
         Route::post('ledgers/{ledger}/entries', [LedgerEntryController::class, 'store']);
         Route::delete('ledgers/{ledger}/entries/{entry}', [LedgerEntryController::class, 'destroy']);
         Route::post('ledger/receipts/scan', [ReceiptScanController::class, 'scan']);
+
+        // ---- External calendar sync -------------------------------------
+        Route::get('calendar/feed-url', [CalendarFeedController::class, 'getFeedUrl']);
 
         // ---- Household Wealth, Loans, Goals, Taxes & Investments ---------
         Route::get('finances/overview', [FinancialOverviewController::class, 'index']);

@@ -3,6 +3,7 @@
 namespace App\Payments;
 
 use App\Models\Invoice;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
@@ -17,6 +18,11 @@ final class RazorpayGateway implements PaymentGateway
 {
     private const API_BASE = 'https://api.razorpay.com/v1';
 
+    public function __construct(
+        private readonly GatewayCredentials $credentials,
+        private readonly ?string $mode = null,
+    ) {}
+
     public function key(): string
     {
         return 'razorpay';
@@ -24,14 +30,12 @@ final class RazorpayGateway implements PaymentGateway
 
     public function isConfigured(): bool
     {
-        return $this->keyId() !== null
-            && $this->keySecret() !== null
-            && $this->webhookSecret() !== null;
+        return $this->credentials->isConfigured($this->key(), $this->mode());
     }
 
     public function mode(): string
     {
-        return str_starts_with((string) $this->keyId(), 'rzp_live_') ? 'live' : 'sandbox';
+        return $this->mode ?? $this->credentials->clientMode($this->key());
     }
 
     public function createCheckout(Invoice $invoice, string $successUrl, string $cancelUrl): CheckoutSession
@@ -74,6 +78,45 @@ final class RazorpayGateway implements PaymentGateway
         }
 
         return new CheckoutSession($id, $url, $this->key(), $this->mode());
+    }
+
+    public function verifyTestPayment(string $reference): array
+    {
+        $keyId = $this->keyId();
+        $keySecret = $this->keySecret();
+
+        if ($keyId === null || $keySecret === null) {
+            return ['status' => 'unknown', 'message' => 'Razorpay is not configured: the key id or key secret is missing.'];
+        }
+
+        try {
+            $response = Http::withBasicAuth($keyId, $keySecret)
+                ->acceptJson()
+                ->timeout(20)
+                ->get(self::API_BASE.'/payment_links/'.rawurlencode($reference));
+        } catch (ConnectionException $exception) {
+            return ['status' => 'unknown', 'message' => 'Could not reach Razorpay: '.$exception->getMessage()];
+        }
+
+        if ($response->failed()) {
+            return [
+                'status' => 'unknown',
+                'message' => 'Razorpay rejected the status lookup: '
+                    .($response->json('error.description') ?? 'HTTP '.$response->status()),
+            ];
+        }
+
+        $status = strtolower((string) $response->json('status'));
+
+        if ($status === 'paid') {
+            return ['status' => 'paid', 'message' => 'Razorpay confirms the payment link was paid.'];
+        }
+
+        if (in_array($status, ['cancelled', 'expired'], true)) {
+            return ['status' => 'failed', 'message' => "The Razorpay payment link was {$status} before it was paid."];
+        }
+
+        return ['status' => 'pending', 'message' => 'Razorpay is still waiting for the payment.'];
     }
 
     public function verifyWebhook(Request $request): PaymentEvent
@@ -128,21 +171,21 @@ final class RazorpayGateway implements PaymentGateway
 
     private function keyId(): ?string
     {
-        $value = config('services.razorpay.key_id');
+        $value = $this->credentials->resolve($this->key(), $this->mode())['key_id'] ?? null;
 
         return is_string($value) && $value !== '' ? $value : null;
     }
 
     private function keySecret(): ?string
     {
-        $value = config('services.razorpay.key_secret');
+        $value = $this->credentials->resolve($this->key(), $this->mode())['key_secret'] ?? null;
 
         return is_string($value) && $value !== '' ? $value : null;
     }
 
     private function webhookSecret(): ?string
     {
-        $value = config('services.razorpay.webhook_secret');
+        $value = $this->credentials->resolve($this->key(), $this->mode())['webhook_secret'] ?? null;
 
         return is_string($value) && $value !== '' ? $value : null;
     }

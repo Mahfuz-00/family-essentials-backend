@@ -91,8 +91,9 @@ class BkashPaymentTest extends TestCase
         ]);
 
         $this->get('/api/v1/webhooks/payments/bkash?paymentID=PAY-1&status=success')
-            ->assertOk()
-            ->assertJsonPath('handled', true);
+            ->assertRedirect(
+                rtrim((string) config('app.frontend_url'), '/').'/billing?checkout=success',
+            );
 
         $this->assertSame('paid', $invoice->fresh()->status);
         $this->assertSame(
@@ -117,7 +118,7 @@ class BkashPaymentTest extends TestCase
             ], 200),
         ]);
 
-        $this->get('/api/v1/webhooks/payments/bkash?paymentID=PAY-2')
+        $this->post('/api/v1/webhooks/payments/bkash', ['paymentID' => 'PAY-2'])
             ->assertStatus(400);
 
         $this->assertSame('pending', $invoice->fresh()->status);

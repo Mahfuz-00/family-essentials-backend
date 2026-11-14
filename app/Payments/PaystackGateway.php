@@ -3,6 +3,7 @@
 namespace App\Payments;
 
 use App\Models\Invoice;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
@@ -18,6 +19,11 @@ final class PaystackGateway implements PaymentGateway
 {
     private const API_BASE = 'https://api.paystack.co';
 
+    public function __construct(
+        private readonly GatewayCredentials $credentials,
+        private readonly ?string $mode = null,
+    ) {}
+
     public function key(): string
     {
         return 'paystack';
@@ -25,12 +31,12 @@ final class PaystackGateway implements PaymentGateway
 
     public function isConfigured(): bool
     {
-        return $this->secretKey() !== null;
+        return $this->credentials->isConfigured($this->key(), $this->mode());
     }
 
     public function mode(): string
     {
-        return str_starts_with((string) $this->secretKey(), 'sk_live_') ? 'live' : 'sandbox';
+        return $this->mode ?? $this->credentials->clientMode($this->key());
     }
 
     public function createCheckout(Invoice $invoice, string $successUrl, string $cancelUrl): CheckoutSession
@@ -82,6 +88,46 @@ final class PaystackGateway implements PaymentGateway
         return new CheckoutSession($reference, $url, $this->key(), $this->mode());
     }
 
+    public function verifyTestPayment(string $reference): array
+    {
+        $secret = $this->secretKey();
+
+        if ($secret === null) {
+            return ['status' => 'unknown', 'message' => 'Paystack is not configured: the secret key is missing.'];
+        }
+
+        try {
+            $response = Http::withToken($secret)
+                ->acceptJson()
+                ->timeout(20)
+                ->get(self::API_BASE.'/transaction/verify/'.rawurlencode($reference));
+        } catch (ConnectionException $exception) {
+            return ['status' => 'unknown', 'message' => 'Could not reach Paystack: '.$exception->getMessage()];
+        }
+
+        if ($response->failed()) {
+            return [
+                'status' => 'unknown',
+                'message' => 'Paystack rejected the status lookup: '
+                    .($response->json('message') ?? 'HTTP '.$response->status()),
+            ];
+        }
+
+        // Paystack answers `status: true` plus `data.status`; only the inner value
+        // says whether the money moved.
+        $status = strtolower((string) $response->json('data.status'));
+
+        if ($status === 'success') {
+            return ['status' => 'paid', 'message' => 'Paystack confirms the transaction succeeded.'];
+        }
+
+        if ($status === 'failed') {
+            return ['status' => 'failed', 'message' => 'Paystack reports the transaction failed.'];
+        }
+
+        return ['status' => 'pending', 'message' => 'Paystack is still waiting for the payment.'];
+    }
+
     public function verifyWebhook(Request $request): PaymentEvent
     {
         $secret = $this->secretKey();
@@ -127,7 +173,7 @@ final class PaystackGateway implements PaymentGateway
 
     private function secretKey(): ?string
     {
-        $value = config('services.paystack.secret_key');
+        $value = $this->credentials->resolve($this->key(), $this->mode())['secret_key'] ?? null;
 
         return is_string($value) && $value !== '' ? $value : null;
     }

@@ -7,6 +7,8 @@ use App\Models\FinancialAsset;
 use App\Models\FinancialGoal;
 use App\Models\FinancialLiability;
 use App\Models\FinancialTax;
+use App\Models\Ledger;
+use App\Models\LedgerEntry;
 use App\Tenancy\TenantContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -22,6 +24,13 @@ class FinancialOverviewController extends Controller
         $liabilities = FinancialLiability::query()->get();
         $goals = FinancialGoal::query()->get();
         $taxes = FinancialTax::query()->get();
+        $ledgers = Ledger::query()->get();
+
+        $monthlyBudget = (int) $ledgers->sum('monthly_budget_minor');
+        $monthlySpend = (int) LedgerEntry::query()
+            ->where('direction', 'debit')
+            ->whereBetween('occurred_on', [now()->startOfMonth()->toDateString(), now()->endOfMonth()->toDateString()])
+            ->sum('amount_minor');
 
         $totalAssets = (int) $assets->sum('balance_minor');
         $totalLiabilities = (int) $liabilities->where('status', '!=', 'paid_off')->sum('remaining_balance_minor');
@@ -52,6 +61,8 @@ class FinancialOverviewController extends Controller
                 'mortgage_minor' => $mortgageLiabilities,
                 'loans_minor' => $otherLoans,
                 'monthly_debt_payment_minor' => $monthlyDebtPayment,
+                'monthly_budget_minor' => $monthlyBudget,
+                'monthly_spend_minor' => $monthlySpend,
                 'goals' => [
                     'active_count' => $activeGoals->count(),
                     'target_minor' => $goalsTarget,
