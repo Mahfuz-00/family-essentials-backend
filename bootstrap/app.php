@@ -25,6 +25,14 @@ return Application::configure(basePath: dirname(__DIR__))
         // Resolve the tenant context before route-model binding runs.
         $middleware->prependToGroup('api', App\Http\Middleware\IdentifyTenant::class);
 
+        // API and mobile clients always receive a JSON 401, never a redirect to
+        // a web login route that does not exist in this API-only application.
+        $middleware->redirectGuestsTo(
+            fn (Request $request) => $request->is('api/*') || $request->is('mobile/*')
+                ? null
+                : '/',
+        );
+
         $middleware->alias([
             'tenant' => App\Http\Middleware\RequireTenant::class,
             'platform.admin' => App\Http\Middleware\EnsurePlatformAdmin::class,

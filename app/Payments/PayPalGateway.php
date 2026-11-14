@@ -17,6 +17,11 @@ use RuntimeException;
  */
 final class PayPalGateway implements PaymentGateway
 {
+    public function __construct(
+        private readonly GatewayCredentials $credentials,
+        private readonly ?string $mode = null,
+    ) {}
+
     public function key(): string
     {
         return 'paypal';
@@ -24,14 +29,12 @@ final class PayPalGateway implements PaymentGateway
 
     public function isConfigured(): bool
     {
-        return $this->clientId() !== null
-            && $this->clientSecret() !== null
-            && $this->webhookId() !== null;
+        return $this->credentials->isConfigured($this->key(), $this->mode());
     }
 
     public function mode(): string
     {
-        return config('services.paypal.mode', 'sandbox') === 'live' ? 'live' : 'sandbox';
+        return $this->mode ?? $this->credentials->clientMode($this->key());
     }
 
     public function createCheckout(Invoice $invoice, string $successUrl, string $cancelUrl): CheckoutSession
@@ -193,21 +196,21 @@ final class PayPalGateway implements PaymentGateway
 
     private function clientId(): ?string
     {
-        $value = config('services.paypal.client_id');
+        $value = $this->credentials->resolve($this->key(), $this->mode())['client_id'] ?? null;
 
         return is_string($value) && $value !== '' ? $value : null;
     }
 
     private function clientSecret(): ?string
     {
-        $value = config('services.paypal.client_secret');
+        $value = $this->credentials->resolve($this->key(), $this->mode())['client_secret'] ?? null;
 
         return is_string($value) && $value !== '' ? $value : null;
     }
 
     private function webhookId(): ?string
     {
-        $value = config('services.paypal.webhook_id');
+        $value = $this->credentials->resolve($this->key(), $this->mode())['webhook_id'] ?? null;
 
         return is_string($value) && $value !== '' ? $value : null;
     }

@@ -16,6 +16,11 @@ use RuntimeException;
  */
 final class SslCommerzGateway implements PaymentGateway
 {
+    public function __construct(
+        private readonly GatewayCredentials $credentials,
+        private readonly ?string $mode = null,
+    ) {}
+
     public function key(): string
     {
         return 'sslcommerz';
@@ -23,12 +28,12 @@ final class SslCommerzGateway implements PaymentGateway
 
     public function isConfigured(): bool
     {
-        return $this->storeId() !== null && $this->storePassword() !== null;
+        return $this->credentials->isConfigured($this->key(), $this->mode());
     }
 
     public function mode(): string
     {
-        return config('services.sslcommerz.mode', 'sandbox') === 'live' ? 'live' : 'sandbox';
+        return $this->mode ?? $this->credentials->clientMode($this->key());
     }
 
     public function createCheckout(Invoice $invoice, string $successUrl, string $cancelUrl): CheckoutSession
@@ -147,14 +152,14 @@ final class SslCommerzGateway implements PaymentGateway
 
     private function storeId(): ?string
     {
-        $value = config('services.sslcommerz.store_id');
+        $value = $this->credentials->resolve($this->key(), $this->mode())['store_id'] ?? null;
 
         return is_string($value) && $value !== '' ? $value : null;
     }
 
     private function storePassword(): ?string
     {
-        $value = config('services.sslcommerz.store_password');
+        $value = $this->credentials->resolve($this->key(), $this->mode())['store_passwd'] ?? null;
 
         return is_string($value) && $value !== '' ? $value : null;
     }

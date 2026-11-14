@@ -17,6 +17,11 @@ final class RazorpayGateway implements PaymentGateway
 {
     private const API_BASE = 'https://api.razorpay.com/v1';
 
+    public function __construct(
+        private readonly GatewayCredentials $credentials,
+        private readonly ?string $mode = null,
+    ) {}
+
     public function key(): string
     {
         return 'razorpay';
@@ -24,14 +29,12 @@ final class RazorpayGateway implements PaymentGateway
 
     public function isConfigured(): bool
     {
-        return $this->keyId() !== null
-            && $this->keySecret() !== null
-            && $this->webhookSecret() !== null;
+        return $this->credentials->isConfigured($this->key(), $this->mode());
     }
 
     public function mode(): string
     {
-        return str_starts_with((string) $this->keyId(), 'rzp_live_') ? 'live' : 'sandbox';
+        return $this->mode ?? $this->credentials->clientMode($this->key());
     }
 
     public function createCheckout(Invoice $invoice, string $successUrl, string $cancelUrl): CheckoutSession
@@ -128,21 +131,21 @@ final class RazorpayGateway implements PaymentGateway
 
     private function keyId(): ?string
     {
-        $value = config('services.razorpay.key_id');
+        $value = $this->credentials->resolve($this->key(), $this->mode())['key_id'] ?? null;
 
         return is_string($value) && $value !== '' ? $value : null;
     }
 
     private function keySecret(): ?string
     {
-        $value = config('services.razorpay.key_secret');
+        $value = $this->credentials->resolve($this->key(), $this->mode())['key_secret'] ?? null;
 
         return is_string($value) && $value !== '' ? $value : null;
     }
 
     private function webhookSecret(): ?string
     {
-        $value = config('services.razorpay.webhook_secret');
+        $value = $this->credentials->resolve($this->key(), $this->mode())['webhook_secret'] ?? null;
 
         return is_string($value) && $value !== '' ? $value : null;
     }

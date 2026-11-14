@@ -18,6 +18,11 @@ final class PaystackGateway implements PaymentGateway
 {
     private const API_BASE = 'https://api.paystack.co';
 
+    public function __construct(
+        private readonly GatewayCredentials $credentials,
+        private readonly ?string $mode = null,
+    ) {}
+
     public function key(): string
     {
         return 'paystack';
@@ -25,12 +30,12 @@ final class PaystackGateway implements PaymentGateway
 
     public function isConfigured(): bool
     {
-        return $this->secretKey() !== null;
+        return $this->credentials->isConfigured($this->key(), $this->mode());
     }
 
     public function mode(): string
     {
-        return str_starts_with((string) $this->secretKey(), 'sk_live_') ? 'live' : 'sandbox';
+        return $this->mode ?? $this->credentials->clientMode($this->key());
     }
 
     public function createCheckout(Invoice $invoice, string $successUrl, string $cancelUrl): CheckoutSession
@@ -127,7 +132,7 @@ final class PaystackGateway implements PaymentGateway
 
     private function secretKey(): ?string
     {
-        $value = config('services.paystack.secret_key');
+        $value = $this->credentials->resolve($this->key(), $this->mode())['secret_key'] ?? null;
 
         return is_string($value) && $value !== '' ? $value : null;
     }

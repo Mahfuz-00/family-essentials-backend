@@ -43,31 +43,9 @@ class HouseholdChatController extends Controller
             ])
             ->values();
 
-        if (! is_array($messages) || empty($messages)) {
-            $firstMember = $members->firstWhere('id', '!=', $request->user()?->id) ?? $members->first();
-            $senderName = $firstMember['name'] ?? 'Sarah Rahman';
-            $senderId = $firstMember['id'] ?? 2;
-
-            $messages = [
-                [
-                    'id' => 1,
-                    'sender_id' => $senderId,
-                    'sender_name' => $senderName,
-                    'recipient_id' => null,
-                    'text' => 'Hey! Are you heading past the grocery store on your way home today?',
-                    'created_at' => now()->subMinutes(24)->format('g:i A'),
-                ],
-                [
-                    'id' => 2,
-                    'sender_id' => $request->user()?->id ?? 1,
-                    'sender_name' => $request->user()?->name ?? 'Tanvir Rahman',
-                    'recipient_id' => null,
-                    'text' => 'Yes! I checked the Pantry list—picking up milk, eggs, and sourdough.',
-                    'created_at' => now()->subMinutes(18)->format('g:i A'),
-                ],
-            ];
-            Cache::put($cacheKey, $messages, now()->addDays(30));
-        }
+        // A fresh household has an empty thread. Messages exist only after
+        // somebody actually sends one.
+        $messages = is_array($messages) ? $messages : [];
 
         $usedCalls = VoiceCallLog::query()
             ->where('tenant_id', $tenant->id)

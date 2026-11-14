@@ -7,16 +7,21 @@ use InvalidArgumentException;
 /** Resolves the configured provider by key. */
 final class PaymentGatewayManager
 {
-    public function gateway(string $key): PaymentGateway
+    /**
+     * @param  string|null  $mode  the mode to operate in; null means the gateway's client-facing mode
+     */
+    public function gateway(string $key, ?string $mode = null): PaymentGateway
     {
+        $credentials = app(GatewayCredentials::class);
+
         return match ($key) {
-            'stripe' => app(StripeGateway::class),
-            'paypal' => app(PayPalGateway::class),
-            'razorpay' => app(RazorpayGateway::class),
-            'sslcommerz' => app(SslCommerzGateway::class),
-            'bkash' => app(BkashGateway::class),
-            'paystack' => app(PaystackGateway::class),
-            'mollie' => app(MollieGateway::class),
+            'stripe' => new StripeGateway($credentials, $mode),
+            'paypal' => new PayPalGateway($credentials, $mode),
+            'razorpay' => new RazorpayGateway($credentials, $mode),
+            'sslcommerz' => new SslCommerzGateway($credentials, $mode),
+            'bkash' => new BkashGateway($credentials, $mode),
+            'paystack' => new PaystackGateway($credentials, $mode),
+            'mollie' => new MollieGateway($credentials, $mode),
             default => throw new InvalidArgumentException("Unsupported payment gateway [{$key}]."),
         };
     }

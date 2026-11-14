@@ -18,6 +18,11 @@ final class MollieGateway implements PaymentGateway
 {
     private const API_BASE = 'https://api.mollie.com/v2';
 
+    public function __construct(
+        private readonly GatewayCredentials $credentials,
+        private readonly ?string $mode = null,
+    ) {}
+
     public function key(): string
     {
         return 'mollie';
@@ -25,12 +30,12 @@ final class MollieGateway implements PaymentGateway
 
     public function isConfigured(): bool
     {
-        return $this->apiKey() !== null;
+        return $this->credentials->isConfigured($this->key(), $this->mode());
     }
 
     public function mode(): string
     {
-        return str_starts_with((string) $this->apiKey(), 'live_') ? 'live' : 'sandbox';
+        return $this->mode ?? $this->credentials->clientMode($this->key());
     }
 
     public function createCheckout(Invoice $invoice, string $successUrl, string $cancelUrl): CheckoutSession
@@ -46,7 +51,7 @@ final class MollieGateway implements PaymentGateway
                 ],
                 'description' => sprintf('FairShare %s plan (%s)', $invoice->tier, $invoice->billing_period),
                 'redirectUrl' => $successUrl,
-                'webhookUrl' => (string) config('services.mollie.webhook_url', url('/api/v1/webhooks/payments/mollie')),
+                'webhookUrl' => $this->webhookUrl(),
                 'sequenceType' => 'oneoff',
                 'metadata' => [
                     'invoice_id' => (string) $invoice->getKey(),
@@ -120,8 +125,17 @@ final class MollieGateway implements PaymentGateway
 
     private function apiKey(): ?string
     {
-        $value = config('services.mollie.api_key');
+        $value = $this->credentials->resolve($this->key(), $this->mode())['api_key'] ?? null;
 
         return is_string($value) && $value !== '' ? $value : null;
+    }
+
+    private function webhookUrl(): string
+    {
+        $value = $this->credentials->resolve($this->key(), $this->mode())['webhook_url'] ?? null;
+
+        return is_string($value) && $value !== ''
+            ? $value
+            : url('/api/v1/webhooks/payments/mollie');
     }
 }

@@ -150,6 +150,7 @@ Route::prefix('v1')->group(function () {
             Route::get('settings/payment', [PlatformSettingsController::class, 'getPaymentGateway']);
             Route::post('settings/payment', [PlatformSettingsController::class, 'updatePaymentGateway']);
             Route::post('settings/payment/test', [PlatformSettingsController::class, 'testPaymentGateway']);
+            Route::post('settings/payment/{gateway}', [PlatformSettingsController::class, 'updateGateway']);
 
             Route::get('settings/email', [PlatformSettingsController::class, 'getEmailConfig']);
             Route::post('settings/email', [PlatformSettingsController::class, 'updateEmailConfig']);

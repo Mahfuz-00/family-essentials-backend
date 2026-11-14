@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1\Platform;
 use App\Audit\AuditRecorder;
 use App\Http\Controllers\Controller;
 use App\Models\PlatformSetting;
+use App\Payments\GatewayCredentials;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -13,7 +14,10 @@ use Throwable;
 
 class SettingsController extends Controller
 {
-    public function __construct(private readonly AuditRecorder $audit) {}
+    public function __construct(
+        private readonly AuditRecorder $audit,
+        private readonly GatewayCredentials $credentials,
+    ) {}
 
     public function getSystemSettings(): JsonResponse
     {
@@ -70,103 +74,14 @@ class SettingsController extends Controller
 
     public function getPaymentGateway(): JsonResponse
     {
-        $defaultGateways = [
-            'stripe' => [
-                'enabled' => true,
-                'sandbox' => true,
-                'publishable_key' => 'pk_test_fairshare_sandbox_mock51928374',
-                'secret_key' => 'sk_test_••••••••••••••••••••••••••••••••',
-                'webhook_secret' => 'whsec_••••••••••••••••••••••••••••',
-            ],
-            'paypal' => [
-                'enabled' => false,
-                'sandbox' => true,
-                'client_id' => 'sb-fairshare-mock-id',
-                'client_secret' => '••••••••••••••••',
-                'webhook_id' => 'WH-••••••••••••••••',
-            ],
-            'razorpay' => [
-                'enabled' => false,
-                'sandbox' => true,
-                'key_id' => 'rzp_test_fairshare',
-                'key_secret' => '••••••••••••••••',
-                'webhook_secret' => '••••••••••••••••',
-            ],
-            'sslcommerz' => [
-                'enabled' => false,
-                'sandbox' => true,
-                'store_id' => 'fairshare_sandbox',
-                'store_passwd' => '••••••••••••••••',
-            ],
-            'bkash' => [
-                'enabled' => false,
-                'sandbox' => true,
-                'app_key' => 'bkash_sandbox_app_key',
-                'app_secret' => '••••••••••••••••',
-                'username' => 'sandbox_user',
-                'password' => '••••••••••••••••',
-            ],
-            'nagad' => [
-                'enabled' => false,
-                'sandbox' => true,
-                'merchant_id' => 'NAGAD_SANDBOX_01',
-                'public_key' => '••••••••••••••••',
-                'private_key' => '••••••••••••••••',
-            ],
-            'paystack' => [
-                'enabled' => false,
-                'sandbox' => true,
-                'public_key' => 'pk_test_••••••••••••••••',
-                'secret_key' => 'sk_test_••••••••••••••••',
-            ],
-            'mollie' => [
-                'enabled' => false,
-                'sandbox' => true,
-                'api_key' => 'test_••••••••••••••••',
-            ],
-            'bank_transfer' => [
-                'enabled' => false,
-                'bank_name' => 'City Bank / Chase',
-                'account_name' => 'FairShare Operations Inc.',
-                'account_number' => '••••••••1234',
-                'routing_code' => '021000021',
-                'swift_bic' => 'CHASUS33',
-                'instructions' => 'Please reference your Invoice Number in the wire transfer description.',
-            ],
-            'cash' => [
-                'enabled' => true,
-                'instructions' => 'Cash payment upon in-person settlement or physical invoice collection.',
-                'auto_mark_paid' => false,
-            ],
-            'mock' => [
-                'enabled' => true,
-                'sandbox' => true,
-                'simulate_failure' => false,
-                'latency_ms' => 120,
-            ],
-        ];
-
-        $settings = PlatformSetting::get('payment_gateway', [
-            'active_gateway' => 'stripe',
-            'mode' => 'sandbox',
-            'currency' => 'USD',
-            'gateways' => $defaultGateways,
-            'webhook_url' => '/api/v1/webhooks/payment',
-            'auto_billing_enabled' => true,
-        ]);
-
-        // Merge any newly introduced gateways into existing database configuration
-        $existingGateways = $settings['gateways'] ?? [];
-        foreach ($defaultGateways as $key => $defaultConfig) {
-            if (! isset($existingGateways[$key])) {
-                $existingGateways[$key] = $defaultConfig;
-            }
-        }
-        $settings['gateways'] = $existingGateways;
-
-        return response()->json(['data' => $settings]);
+        return response()->json(['data' => $this->presentSettings($this->paymentGatewaySettings())]);
     }
 
+    /**
+     * The global contract: which gateway is active, the platform currency and the
+     * auto-billing flag. Credentials are edited per gateway (see updateGateway),
+     * but any that arrive here are merged through the same secret protection.
+     */
     public function updatePaymentGateway(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -177,8 +92,21 @@ class SettingsController extends Controller
             'auto_billing_enabled' => ['required', 'boolean'],
         ]);
 
-        $current = PlatformSetting::get('payment_gateway', []);
-        $merged = array_merge($current, $validated);
+        $current = $this->storedSettings();
+        $storedGateways = is_array($current['gateways'] ?? null) ? $current['gateways'] : [];
+        $submittedGateways = [];
+
+        foreach ($validated['gateways'] as $key => $config) {
+            if (! is_array($config)) {
+                continue;
+            }
+
+            $key = (string) $key;
+            $existing = is_array($storedGateways[$key] ?? null) ? $storedGateways[$key] : [];
+            $submittedGateways[$key] = $this->mergeGatewaySubmission($key, $existing, $config);
+        }
+
+        $merged = array_merge($current, $validated, ['gateways' => $submittedGateways]);
 
         PlatformSetting::set('payment_gateway', $merged);
 
@@ -190,423 +118,90 @@ class SettingsController extends Controller
 
         return response()->json([
             'message' => 'Payment gateway settings updated.',
-            'data' => $merged,
+            'data' => $this->presentSettings($merged),
         ]);
     }
 
-    public function testPaymentGateway(Request $request): JsonResponse
+    /**
+     * Save one gateway from its own card: the enabled flag, the client-facing mode
+     * and both credential sets, without touching the global settings.
+     */
+    public function updateGateway(Request $request, string $gateway): JsonResponse
     {
-        $gateway = $request->input('gateway', 'stripe');
-        $settings = PlatformSetting::get('payment_gateway', []);
-        $gatewayConfig = $settings['gateways'][$gateway] ?? [];
-        $isSandbox = $request->has('mode')
-            ? ($request->input('mode') === 'sandbox')
-            : (bool) ($gatewayConfig['sandbox'] ?? true);
-        $mode = $isSandbox ? 'sandbox' : 'live';
-
-        if ($gateway === 'stripe') {
-            $secret = config('services.stripe.secret');
-
-            if (! is_string($secret) || $secret === '') {
-                return response()->json([
-                    'status' => 'unconfigured',
-                    'gateway' => 'stripe',
-                    'message' => 'STRIPE_SECRET is not set. Add the sandbox or live secret key to the environment.',
-                ], 422);
-            }
-
-            $mode = str_starts_with($secret, 'sk_live_') ? 'live' : 'sandbox';
-            $start = microtime(true);
-
-            try {
-                $response = Http::withToken($secret)
-                    ->acceptJson()
-                    ->timeout(10)
-                    ->get('https://api.stripe.com/v1/balance');
-            } catch (Throwable $exception) {
-                return response()->json([
-                    'status' => 'error',
-                    'gateway' => 'stripe',
-                    'mode' => $mode,
-                    'message' => 'Could not reach Stripe: '.$exception->getMessage(),
-                ], 502);
-            }
-
-            $latencyMs = round((microtime(true) - $start) * 1000);
-
-            if ($response->failed()) {
-                return response()->json([
-                    'status' => 'error',
-                    'gateway' => 'stripe',
-                    'mode' => $mode,
-                    'latency_ms' => $latencyMs,
-                    'message' => 'Stripe rejected the credentials: '
-                        .($response->json('error.message') ?? 'HTTP '.$response->status()),
-                ], 502);
-            }
-
-            return response()->json([
-                'status' => 'connected',
-                'gateway' => 'stripe',
-                'mode' => $mode,
-                'latency_ms' => $latencyMs,
-                'message' => "Stripe API reachable with the configured {$mode} secret key.",
-                'timestamp' => now()->toIso8601String(),
-            ]);
+        if (! in_array($gateway, $this->credentials->gatewayKeys(), true)) {
+            abort(404, 'Payment gateway not found.');
         }
 
-        if ($gateway === 'paypal') {
-            $clientId = config('services.paypal.client_id');
-            $clientSecret = config('services.paypal.client_secret');
+        $validated = $request->validate([
+            'enabled' => ['sometimes', 'boolean'],
+            'sandbox' => ['sometimes', 'boolean'],
+            'credentials' => ['sometimes', 'array'],
+            'credentials.sandbox' => ['sometimes', 'array'],
+            'credentials.live' => ['sometimes', 'array'],
+            ...$this->nonCredentialRules($gateway),
+        ]);
 
-            if (! is_string($clientId) || $clientId === '' || ! is_string($clientSecret) || $clientSecret === '') {
-                return response()->json([
-                    'status' => 'unconfigured',
-                    'gateway' => 'paypal',
-                    'message' => 'PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET are not set.',
-                ], 422);
-            }
+        $settings = $this->storedSettings();
+        $gateways = is_array($settings['gateways'] ?? null) ? $settings['gateways'] : [];
+        $existing = is_array($gateways[$gateway] ?? null) ? $gateways[$gateway] : [];
 
-            $paypalMode = config('services.paypal.mode', 'sandbox') === 'live' ? 'live' : 'sandbox';
-            $base = $paypalMode === 'live'
-                ? 'https://api-m.paypal.com'
-                : 'https://api-m.sandbox.paypal.com';
-            $start = microtime(true);
+        $updated = $this->mergeGatewaySubmission($gateway, $existing, $validated);
 
-            try {
-                $response = Http::withBasicAuth($clientId, $clientSecret)
-                    ->asForm()
-                    ->acceptJson()
-                    ->timeout(10)
-                    ->post($base.'/v1/oauth2/token', ['grant_type' => 'client_credentials']);
-            } catch (Throwable $exception) {
-                return response()->json([
-                    'status' => 'error',
-                    'gateway' => 'paypal',
-                    'mode' => $paypalMode,
-                    'message' => 'Could not reach PayPal: '.$exception->getMessage(),
-                ], 502);
-            }
+        $gateways[$gateway] = $updated;
+        $settings['gateways'] = $gateways;
 
-            $latencyMs = round((microtime(true) - $start) * 1000);
+        PlatformSetting::set('payment_gateway', $settings);
 
-            if ($response->failed() || ! is_string($response->json('access_token'))) {
-                return response()->json([
-                    'status' => 'error',
-                    'gateway' => 'paypal',
-                    'mode' => $paypalMode,
-                    'latency_ms' => $latencyMs,
-                    'message' => 'PayPal rejected the credentials: '
-                        .($response->json('error_description') ?? 'HTTP '.$response->status()),
-                ], 502);
-            }
+        $clientMode = $this->credentials->clientMode($gateway);
 
-            return response()->json([
-                'status' => 'connected',
-                'gateway' => 'paypal',
-                'mode' => $paypalMode,
-                'latency_ms' => $latencyMs,
-                'message' => "PayPal OAuth token issued in {$paypalMode} mode.",
-                'timestamp' => now()->toIso8601String(),
-            ]);
-        }
-
-        if ($gateway === 'razorpay') {
-            $keyId = config('services.razorpay.key_id');
-            $keySecret = config('services.razorpay.key_secret');
-
-            if (! is_string($keyId) || $keyId === '' || ! is_string($keySecret) || $keySecret === '') {
-                return response()->json([
-                    'status' => 'unconfigured',
-                    'gateway' => 'razorpay',
-                    'message' => 'RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET are not set.',
-                ], 422);
-            }
-
-            $razorpayMode = str_starts_with($keyId, 'rzp_live_') ? 'live' : 'sandbox';
-            $start = microtime(true);
-
-            try {
-                $response = Http::withBasicAuth($keyId, $keySecret)
-                    ->acceptJson()
-                    ->timeout(10)
-                    ->get('https://api.razorpay.com/v1/orders', ['count' => 1]);
-            } catch (Throwable $exception) {
-                return response()->json([
-                    'status' => 'error',
-                    'gateway' => 'razorpay',
-                    'mode' => $razorpayMode,
-                    'message' => 'Could not reach Razorpay: '.$exception->getMessage(),
-                ], 502);
-            }
-
-            $latencyMs = round((microtime(true) - $start) * 1000);
-
-            if ($response->failed()) {
-                return response()->json([
-                    'status' => 'error',
-                    'gateway' => 'razorpay',
-                    'mode' => $razorpayMode,
-                    'latency_ms' => $latencyMs,
-                    'message' => 'Razorpay rejected the credentials: '
-                        .($response->json('error.description') ?? 'HTTP '.$response->status()),
-                ], 502);
-            }
-
-            return response()->json([
-                'status' => 'connected',
-                'gateway' => 'razorpay',
-                'mode' => $razorpayMode,
-                'latency_ms' => $latencyMs,
-                'message' => "Razorpay API reachable with the configured {$razorpayMode} keys.",
-                'timestamp' => now()->toIso8601String(),
-            ]);
-        }
-
-        if ($gateway === 'sslcommerz') {
-            $storeId = config('services.sslcommerz.store_id');
-            $storePassword = config('services.sslcommerz.store_password');
-
-            if (! is_string($storeId) || $storeId === '' || ! is_string($storePassword) || $storePassword === '') {
-                return response()->json([
-                    'status' => 'unconfigured',
-                    'gateway' => 'sslcommerz',
-                    'message' => 'SSLCOMMERZ_STORE_ID and SSLCOMMERZ_STORE_PASSWD are not set.',
-                ], 422);
-            }
-
-            $sslMode = config('services.sslcommerz.mode', 'sandbox') === 'live' ? 'live' : 'sandbox';
-
-            return response()->json([
-                'status' => 'connected',
-                'gateway' => 'sslcommerz',
-                'mode' => $sslMode,
-                'latency_ms' => 0,
-                'message' => 'SSLCommerz credentials are present. SSLCommerz has no ping endpoint; the first session validates them.',
-                'timestamp' => now()->toIso8601String(),
-            ]);
-        }
-
-        if ($gateway === 'bkash') {
-            $appKey = config('services.bkash.app_key');
-            $appSecret = config('services.bkash.app_secret');
-            $username = config('services.bkash.username');
-            $password = config('services.bkash.password');
-
-            if (! is_string($appKey) || $appKey === '' || ! is_string($appSecret) || $appSecret === '') {
-                return response()->json([
-                    'status' => 'unconfigured',
-                    'gateway' => 'bkash',
-                    'message' => 'BKASH_APP_KEY and BKASH_APP_SECRET are not set.',
-                ], 422);
-            }
-
-            $bkashMode = config('services.bkash.mode', 'sandbox') === 'live' ? 'live' : 'sandbox';
-            $base = $bkashMode === 'live'
-                ? 'https://tokenized.pay.bka.sh/v1.2.0-beta'
-                : 'https://tokenized.sandbox.bka.sh/v1.2.0-beta';
-            $start = microtime(true);
-
-            try {
-                $response = Http::withHeaders([
-                    'username' => (string) $username,
-                    'password' => (string) $password,
-                ])->acceptJson()->asJson()->timeout(10)->post(
-                    $base.'/tokenized/checkout/token/grant',
-                    ['app_key' => $appKey, 'app_secret' => $appSecret],
-                );
-            } catch (Throwable $exception) {
-                return response()->json([
-                    'status' => 'error',
-                    'gateway' => 'bkash',
-                    'mode' => $bkashMode,
-                    'message' => 'Could not reach bKash: '.$exception->getMessage(),
-                ], 502);
-            }
-
-            $latencyMs = round((microtime(true) - $start) * 1000);
-
-            if ($response->failed() || ! is_string($response->json('id_token'))) {
-                return response()->json([
-                    'status' => 'error',
-                    'gateway' => 'bkash',
-                    'mode' => $bkashMode,
-                    'latency_ms' => $latencyMs,
-                    'message' => 'bKash rejected the credentials: '
-                        .($response->json('statusMessage') ?? 'HTTP '.$response->status()),
-                ], 502);
-            }
-
-            return response()->json([
-                'status' => 'connected',
-                'gateway' => 'bkash',
-                'mode' => $bkashMode,
-                'latency_ms' => $latencyMs,
-                'message' => "bKash token issued in {$bkashMode} mode.",
-                'timestamp' => now()->toIso8601String(),
-            ]);
-        }
-
-        if ($gateway === 'paystack') {
-            $secretKey = config('services.paystack.secret_key');
-
-            if (! is_string($secretKey) || $secretKey === '') {
-                return response()->json([
-                    'status' => 'unconfigured',
-                    'gateway' => 'paystack',
-                    'message' => 'PAYSTACK_SECRET_KEY is not set.',
-                ], 422);
-            }
-
-            $paystackMode = str_starts_with($secretKey, 'sk_live_') ? 'live' : 'sandbox';
-            $start = microtime(true);
-
-            try {
-                $response = Http::withToken($secretKey)
-                    ->acceptJson()
-                    ->timeout(10)
-                    ->get('https://api.paystack.co/transaction', ['perPage' => 1]);
-            } catch (Throwable $exception) {
-                return response()->json([
-                    'status' => 'error',
-                    'gateway' => 'paystack',
-                    'mode' => $paystackMode,
-                    'message' => 'Could not reach Paystack: '.$exception->getMessage(),
-                ], 502);
-            }
-
-            $latencyMs = round((microtime(true) - $start) * 1000);
-
-            if ($response->failed()) {
-                return response()->json([
-                    'status' => 'error',
-                    'gateway' => 'paystack',
-                    'mode' => $paystackMode,
-                    'latency_ms' => $latencyMs,
-                    'message' => 'Paystack rejected the credentials: '
-                        .($response->json('message') ?? 'HTTP '.$response->status()),
-                ], 502);
-            }
-
-            return response()->json([
-                'status' => 'connected',
-                'gateway' => 'paystack',
-                'mode' => $paystackMode,
-                'latency_ms' => $latencyMs,
-                'message' => "Paystack API reachable with the configured {$paystackMode} key.",
-                'timestamp' => now()->toIso8601String(),
-            ]);
-        }
-
-        if ($gateway === 'mollie') {
-            $apiKey = config('services.mollie.api_key');
-
-            if (! is_string($apiKey) || $apiKey === '') {
-                return response()->json([
-                    'status' => 'unconfigured',
-                    'gateway' => 'mollie',
-                    'message' => 'MOLLIE_API_KEY is not set.',
-                ], 422);
-            }
-
-            $mollieMode = str_starts_with($apiKey, 'live_') ? 'live' : 'sandbox';
-            $start = microtime(true);
-
-            try {
-                $response = Http::withToken($apiKey)
-                    ->acceptJson()
-                    ->timeout(10)
-                    ->get('https://api.mollie.com/v2/payments', ['limit' => 1]);
-            } catch (Throwable $exception) {
-                return response()->json([
-                    'status' => 'error',
-                    'gateway' => 'mollie',
-                    'mode' => $mollieMode,
-                    'message' => 'Could not reach Mollie: '.$exception->getMessage(),
-                ], 502);
-            }
-
-            $latencyMs = round((microtime(true) - $start) * 1000);
-
-            if ($response->failed()) {
-                return response()->json([
-                    'status' => 'error',
-                    'gateway' => 'mollie',
-                    'mode' => $mollieMode,
-                    'latency_ms' => $latencyMs,
-                    'message' => 'Mollie rejected the credentials: '
-                        .($response->json('detail') ?? 'HTTP '.$response->status()),
-                ], 502);
-            }
-
-            return response()->json([
-                'status' => 'connected',
-                'gateway' => 'mollie',
-                'mode' => $mollieMode,
-                'latency_ms' => $latencyMs,
-                'message' => "Mollie API reachable with the configured {$mollieMode} key.",
-                'timestamp' => now()->toIso8601String(),
-            ]);
-        }
-
-        if ($gateway === 'cash') {
-            return response()->json([
-                'status' => 'connected',
-                'gateway' => 'cash',
-                'mode' => $mode,
-                'latency_ms' => 0,
-                'message' => 'Cash payment and offline collection workflow is active and ready.',
-                'timestamp' => now()->toIso8601String(),
-            ]);
-        }
-
-        if ($gateway === 'mock') {
-            return response()->json([
-                'status' => 'connected',
-                'gateway' => 'mock',
-                'mode' => 'sandbox',
-                'latency_ms' => 15,
-                'message' => 'Internal Sandbox Payment Simulator is active. Test card 4242-4242-4242-4242 ready.',
-                'timestamp' => now()->toIso8601String(),
-            ]);
-        }
-
-        if ($gateway === 'bank_transfer') {
-            return response()->json([
-                'status' => 'connected',
-                'gateway' => 'bank_transfer',
-                'mode' => $mode,
-                'latency_ms' => 0,
-                'message' => 'Bank Wire / Direct Transfer details configured for offline invoice settlement.',
-                'timestamp' => now()->toIso8601String(),
-            ]);
-        }
-
-        $start = microtime(true);
-        usleep(120000); // 120ms simulated API ping
-        $latencyMs = round((microtime(true) - $start) * 1000);
-
-        $gatewayLabels = [
-            'stripe' => 'Stripe Payments API',
-            'paypal' => 'PayPal Commerce REST API',
-            'razorpay' => 'Razorpay Payments API',
-            'sslcommerz' => 'SSLCommerz Payment Session',
-            'bkash' => 'bKash PGW Merchant API',
-            'nagad' => 'Nagad Digital Merchant API',
-            'paystack' => 'Paystack Africa Gateway',
-            'mollie' => 'Mollie Payments Europe',
-        ];
-
-        $label = $gatewayLabels[$gateway] ?? ucfirst($gateway);
+        $this->audit->record('platform.payment_gateway_saved', [
+            'gateway' => $gateway,
+            'client_mode' => $clientMode,
+            'configured' => $this->credentials->isConfigured($gateway, $clientMode),
+        ], 'info');
 
         return response()->json([
-            'status' => 'connected',
+            'message' => $this->gatewayLabel($gateway).' settings saved.',
+            'data' => $this->presentGateway($gateway, $updated),
+        ]);
+    }
+
+    /**
+     * Ping one gateway in one mode with the credentials that mode resolves to,
+     * record the outcome and log it. The probe always ends in an honest status:
+     * a gateway the platform cannot reach reports `unconfigured`, never success.
+     */
+    public function testPaymentGateway(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'gateway' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'mode' => ['sometimes', 'nullable', 'string', 'in:sandbox,live'],
+        ]);
+
+        $gateway = $validated['gateway'] ?? 'stripe';
+        $mode = $validated['mode'] ?? $this->credentials->clientMode($gateway);
+
+        $result = $this->probeGateway($gateway, $mode);
+
+        if (in_array($gateway, $this->credentials->gatewayKeys(), true)) {
+            $this->rememberGatewayTest($gateway, $mode, $result);
+        }
+
+        $this->audit->record('platform.payment_gateway_tested', [
             'gateway' => $gateway,
             'mode' => $mode,
-            'latency_ms' => $latencyMs,
-            'message' => "Successfully connected to {$label} [{$mode} environment] in {$latencyMs}ms.",
+            'status' => $result['status'],
+            'latency_ms' => $result['latency_ms'],
+        ], $result['status'] === 'connected' ? 'info' : 'warning');
+
+        return response()->json([
+            'status' => $result['status'],
+            'gateway' => $gateway,
+            'mode' => $mode,
+            'latency_ms' => $result['latency_ms'],
+            'message' => $result['message'],
             'timestamp' => now()->toIso8601String(),
-        ]);
+        ], $result['http']);
     }
 
     public function getEmailConfig(): JsonResponse
@@ -694,5 +289,642 @@ class SettingsController extends Controller
                 'message' => "Failed to deliver test email: {$e->getMessage()}",
             ], 422);
         }
+    }
+
+    /**
+     * The gateways the console shows before anything has been saved.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function gatewayDefaults(): array
+    {
+        return [
+            'stripe' => [
+                'enabled' => true,
+                'sandbox' => true,
+                'publishable_key' => 'pk_test_fairshare_sandbox_mock51928374',
+                'secret_key' => 'sk_test_••••••••••••••••••••••••••••••••',
+                'webhook_secret' => 'whsec_••••••••••••••••••••••••••••',
+            ],
+            'paypal' => [
+                'enabled' => false,
+                'sandbox' => true,
+                'client_id' => 'sb-fairshare-mock-id',
+                'client_secret' => '••••••••••••••••',
+                'webhook_id' => 'WH-••••••••••••••••',
+            ],
+            'razorpay' => [
+                'enabled' => false,
+                'sandbox' => true,
+                'key_id' => 'rzp_test_fairshare',
+                'key_secret' => '••••••••••••••••',
+                'webhook_secret' => '••••••••••••••••',
+            ],
+            'sslcommerz' => [
+                'enabled' => false,
+                'sandbox' => true,
+                'store_id' => 'fairshare_sandbox',
+                'store_passwd' => '••••••••••••••••',
+            ],
+            'bkash' => [
+                'enabled' => false,
+                'sandbox' => true,
+                'app_key' => 'bkash_sandbox_app_key',
+                'app_secret' => '••••••••••••••••',
+                'username' => 'sandbox_user',
+                'password' => '••••••••••••••••',
+            ],
+            'nagad' => [
+                'enabled' => false,
+                'sandbox' => true,
+                'merchant_id' => 'NAGAD_SANDBOX_01',
+                'public_key' => '••••••••••••••••',
+                'private_key' => '••••••••••••••••',
+            ],
+            'paystack' => [
+                'enabled' => false,
+                'sandbox' => true,
+                'public_key' => 'pk_test_••••••••••••••••',
+                'secret_key' => 'sk_test_••••••••••••••••',
+            ],
+            'mollie' => [
+                'enabled' => false,
+                'sandbox' => true,
+                'api_key' => 'test_••••••••••••••••',
+            ],
+            'bank_transfer' => [
+                'enabled' => false,
+                'bank_name' => 'City Bank / Chase',
+                'account_name' => 'FairShare Operations Inc.',
+                'account_number' => '••••••••1234',
+                'routing_code' => '021000021',
+                'swift_bic' => 'CHASUS33',
+                'instructions' => 'Please reference your Invoice Number in the wire transfer description.',
+            ],
+            'cash' => [
+                'enabled' => true,
+                'instructions' => 'Cash payment upon in-person settlement or physical invoice collection.',
+                'auto_mark_paid' => false,
+            ],
+            'mock' => [
+                'enabled' => true,
+                'sandbox' => true,
+                'simulate_failure' => false,
+                'latency_ms' => 120,
+            ],
+        ];
+    }
+
+    /**
+     * What is actually stored, with no defaults mixed in.
+     *
+     * @return array<string, mixed>
+     */
+    private function storedSettings(): array
+    {
+        $settings = PlatformSetting::get('payment_gateway', []);
+
+        return is_array($settings) ? $settings : [];
+    }
+
+    /**
+     * The stored settings with the global defaults and every known gateway filled
+     * in, so the console always receives a complete shape.
+     *
+     * @return array<string, mixed>
+     */
+    private function paymentGatewaySettings(): array
+    {
+        $settings = array_merge([
+            'active_gateway' => 'stripe',
+            'mode' => 'sandbox',
+            'currency' => 'USD',
+            'webhook_url' => '/api/v1/webhooks/payment',
+            'auto_billing_enabled' => true,
+        ], $this->storedSettings());
+
+        $gateways = is_array($settings['gateways'] ?? null) ? $settings['gateways'] : [];
+
+        foreach ($this->gatewayDefaults() as $key => $default) {
+            $stored = $gateways[$key] ?? [];
+            $gateways[$key] = array_merge($default, is_array($stored) ? $stored : []);
+        }
+
+        $settings['gateways'] = $gateways;
+
+        return $settings;
+    }
+
+    /**
+     * A settings payload that is safe to return: every gateway shaped by
+     * presentGateway(), which masks every secret.
+     *
+     * @param  array<string, mixed>  $settings
+     * @return array<string, mixed>
+     */
+    private function presentSettings(array $settings): array
+    {
+        $gateways = is_array($settings['gateways'] ?? null) ? $settings['gateways'] : [];
+        $presented = [];
+
+        foreach ($gateways as $key => $config) {
+            $presented[$key] = $this->presentGateway((string) $key, is_array($config) ? $config : []);
+        }
+
+        $settings['gateways'] = $presented;
+
+        return $settings;
+    }
+
+    /**
+     * One gateway as the console sees it: the legacy flat fields for backwards
+     * compatibility, both credential sets, and the last ping per mode. Every
+     * secret is replaced by the mask sentinel.
+     *
+     * @param  array<string, mixed>  $config
+     * @return array<string, mixed>
+     */
+    private function presentGateway(string $gateway, array $config): array
+    {
+        if (! in_array($gateway, $this->credentials->gatewayKeys(), true)) {
+            return $this->credentials->mask($config);
+        }
+
+        $flat = [];
+
+        foreach ($this->credentials->fields($gateway) as $field) {
+            if (array_key_exists($field, $config)) {
+                $flat[$field] = $config[$field];
+            }
+        }
+
+        $sets = $this->credentials->storedSets($gateway, $config);
+        $lastTest = is_array($config['last_test'] ?? null) ? $config['last_test'] : [];
+
+        $presented = [
+            'enabled' => filter_var($config['enabled'] ?? false, FILTER_VALIDATE_BOOLEAN),
+        ];
+
+        if (array_key_exists('sandbox', $config)) {
+            $presented['sandbox'] = filter_var($config['sandbox'], FILTER_VALIDATE_BOOLEAN);
+        }
+
+        return array_merge($presented, $this->credentials->mask($flat), [
+            'credentials' => [
+                'sandbox' => $this->credentials->mask($sets['sandbox']),
+                'live' => $this->credentials->mask($sets['live']),
+            ],
+            'last_test' => [
+                'sandbox' => is_array($lastTest['sandbox'] ?? null) ? $lastTest['sandbox'] : null,
+                'live' => is_array($lastTest['live'] ?? null) ? $lastTest['live'] : null,
+            ],
+        ]);
+    }
+
+    /**
+     * Overlay one submitted gateway config on what is stored for it.
+     *
+     * Secrets — in either credential set, or as a legacy flat field — keep their
+     * stored value when the submission carries the mask sentinel or nothing at
+     * all, so a screen that only round-trips masks can never erase a credential.
+     *
+     * @param  array<string, mixed>  $existing
+     * @param  array<string, mixed>  $submitted
+     * @return array<string, mixed>
+     */
+    private function mergeGatewaySubmission(string $gateway, array $existing, array $submitted): array
+    {
+        $updated = $existing;
+        $fields = $this->credentials->fields($gateway);
+        $secretFields = $this->credentials->secretFields($gateway);
+
+        if (array_key_exists('enabled', $submitted)) {
+            $updated['enabled'] = filter_var($submitted['enabled'], FILTER_VALIDATE_BOOLEAN);
+        }
+
+        if (array_key_exists('sandbox', $submitted)) {
+            $updated['sandbox'] = filter_var($submitted['sandbox'], FILTER_VALIDATE_BOOLEAN);
+        }
+
+        if (is_array($submitted['credentials'] ?? null)) {
+            $storedSets = $this->credentials->storedSets($gateway, $existing);
+            $mergedSets = [];
+
+            foreach (['sandbox', 'live'] as $mode) {
+                $submittedSet = $submitted['credentials'][$mode] ?? [];
+                $submittedSet = is_array($submittedSet) ? $submittedSet : [];
+
+                if ($fields !== []) {
+                    $submittedSet = array_intersect_key($submittedSet, array_flip($fields));
+                }
+
+                $mergedSets[$mode] = $this->credentials->mergeSubmitted($storedSets[$mode], $submittedSet);
+            }
+
+            $updated['credentials'] = $mergedSets;
+        }
+
+        $flat = [];
+
+        foreach ($fields as $field) {
+            if (array_key_exists($field, $submitted) && ! is_array($submitted[$field])) {
+                $flat[$field] = $submitted[$field];
+            }
+        }
+
+        $updated = array_merge($updated, $this->credentials->mergeSubmitted(
+            array_intersect_key($existing, array_flip($secretFields)),
+            array_intersect_key($flat, array_flip($secretFields)),
+        ));
+
+        foreach (array_diff_key($flat, array_flip($secretFields)) as $field => $value) {
+            $updated[$field] = $value;
+        }
+
+        return $updated;
+    }
+
+    /**
+     * Rules for the flat, non-credential fields of the offline gateways.
+     *
+     * @return array<string, list<string>>
+     */
+    private function nonCredentialRules(string $gateway): array
+    {
+        return match ($gateway) {
+            'cash' => [
+                'instructions' => ['sometimes', 'nullable', 'string', 'max:500'],
+                'auto_mark_paid' => ['sometimes', 'boolean'],
+            ],
+            'bank_transfer' => [
+                'bank_name' => ['sometimes', 'nullable', 'string', 'max:120'],
+                'account_name' => ['sometimes', 'nullable', 'string', 'max:120'],
+                'account_number' => ['sometimes', 'nullable', 'string', 'max:64'],
+                'routing_code' => ['sometimes', 'nullable', 'string', 'max:64'],
+                'swift_bic' => ['sometimes', 'nullable', 'string', 'max:32'],
+                'instructions' => ['sometimes', 'nullable', 'string', 'max:500'],
+            ],
+            'mock' => [
+                'simulate_failure' => ['sometimes', 'boolean'],
+                'latency_ms' => ['sometimes', 'integer', 'min:0', 'max:60000'],
+            ],
+            default => [],
+        };
+    }
+
+    /**
+     * Probe one gateway with the credentials resolved for the requested mode.
+     *
+     * @return array{status: string, message: string, latency_ms: int|null, http: int}
+     */
+    private function probeGateway(string $gateway, string $mode): array
+    {
+        $label = $this->gatewayLabel($gateway);
+
+        if (in_array($gateway, ['cash', 'mock', 'bank_transfer'], true)) {
+            return match ($gateway) {
+                'cash' => [
+                    'status' => 'connected',
+                    'latency_ms' => 0,
+                    'http' => 200,
+                    'message' => 'Cash payment and offline collection workflow is active and ready.',
+                ],
+                'mock' => [
+                    'status' => 'connected',
+                    'latency_ms' => 15,
+                    'http' => 200,
+                    'message' => 'Internal Sandbox Payment Simulator is active. Test card 4242-4242-4242-4242 ready.',
+                ],
+                default => [
+                    'status' => 'connected',
+                    'latency_ms' => 0,
+                    'http' => 200,
+                    'message' => 'Bank Wire / Direct Transfer details configured for offline invoice settlement.',
+                ],
+            };
+        }
+
+        if (! in_array($gateway, ['stripe', 'paypal', 'razorpay', 'sslcommerz', 'bkash', 'paystack', 'mollie'], true)) {
+            return [
+                'status' => 'unconfigured',
+                'latency_ms' => null,
+                'http' => 422,
+                'message' => "{$label} has no API this platform can ping, so no probe was sent.",
+            ];
+        }
+
+        if (! $this->credentials->isConfigured($gateway, $mode)) {
+            return [
+                'status' => 'unconfigured',
+                'latency_ms' => null,
+                'http' => 422,
+                'message' => "{$label} has no {$mode} credentials. Save the {$mode} set for this gateway, or provide the environment variables, and ping again.",
+            ];
+        }
+
+        $credentials = $this->credentials->resolve($gateway, $mode);
+
+        return match ($gateway) {
+            'stripe' => $this->probeStripe($credentials, $mode),
+            'paypal' => $this->probePayPal($credentials, $mode),
+            'razorpay' => $this->probeRazorpay($credentials, $mode),
+            'sslcommerz' => $this->probeSslCommerz(),
+            'bkash' => $this->probeBkash($credentials, $mode),
+            'paystack' => $this->probePaystack($credentials, $mode),
+            'mollie' => $this->probeMollie($credentials, $mode),
+            default => [
+                'status' => 'unconfigured',
+                'latency_ms' => null,
+                'http' => 422,
+                'message' => "{$label} has no API this platform can ping, so no probe was sent.",
+            ],
+        };
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     * @return array{status: string, message: string, latency_ms: int|null, http: int}
+     */
+    private function probeStripe(array $credentials, string $mode): array
+    {
+        $start = microtime(true);
+
+        try {
+            $response = Http::withToken((string) $credentials['secret_key'])
+                ->acceptJson()
+                ->timeout(10)
+                ->get('https://api.stripe.com/v1/balance');
+        } catch (Throwable $exception) {
+            return $this->probeUnreachable('Stripe', $exception);
+        }
+
+        $latencyMs = $this->elapsedMs($start);
+
+        if ($response->failed()) {
+            return $this->probeRejected($latencyMs, 'Stripe', $response->json('error.message'), $response->status());
+        }
+
+        return [
+            'status' => 'connected',
+            'latency_ms' => $latencyMs,
+            'http' => 200,
+            'message' => "Stripe API reachable with the configured {$mode} secret key.",
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     * @return array{status: string, message: string, latency_ms: int|null, http: int}
+     */
+    private function probePayPal(array $credentials, string $mode): array
+    {
+        $base = $mode === 'live'
+            ? 'https://api-m.paypal.com'
+            : 'https://api-m.sandbox.paypal.com';
+        $start = microtime(true);
+
+        try {
+            $response = Http::withBasicAuth((string) $credentials['client_id'], (string) $credentials['client_secret'])
+                ->asForm()
+                ->acceptJson()
+                ->timeout(10)
+                ->post($base.'/v1/oauth2/token', ['grant_type' => 'client_credentials']);
+        } catch (Throwable $exception) {
+            return $this->probeUnreachable('PayPal', $exception);
+        }
+
+        $latencyMs = $this->elapsedMs($start);
+
+        if ($response->failed() || ! is_string($response->json('access_token'))) {
+            return $this->probeRejected($latencyMs, 'PayPal', $response->json('error_description'), $response->status());
+        }
+
+        return [
+            'status' => 'connected',
+            'latency_ms' => $latencyMs,
+            'http' => 200,
+            'message' => "PayPal OAuth token issued in {$mode} mode.",
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     * @return array{status: string, message: string, latency_ms: int|null, http: int}
+     */
+    private function probeRazorpay(array $credentials, string $mode): array
+    {
+        $start = microtime(true);
+
+        try {
+            $response = Http::withBasicAuth((string) $credentials['key_id'], (string) $credentials['key_secret'])
+                ->acceptJson()
+                ->timeout(10)
+                ->get('https://api.razorpay.com/v1/orders', ['count' => 1]);
+        } catch (Throwable $exception) {
+            return $this->probeUnreachable('Razorpay', $exception);
+        }
+
+        $latencyMs = $this->elapsedMs($start);
+
+        if ($response->failed()) {
+            return $this->probeRejected($latencyMs, 'Razorpay', $response->json('error.description'), $response->status());
+        }
+
+        return [
+            'status' => 'connected',
+            'latency_ms' => $latencyMs,
+            'http' => 200,
+            'message' => "Razorpay API reachable with the configured {$mode} keys.",
+        ];
+    }
+
+    /**
+     * SSLCommerz publishes no ping endpoint, so presence of the credentials is all
+     * that can honestly be reported; the first session validates them.
+     *
+     * @return array{status: string, message: string, latency_ms: int|null, http: int}
+     */
+    private function probeSslCommerz(): array
+    {
+        return [
+            'status' => 'connected',
+            'latency_ms' => 0,
+            'http' => 200,
+            'message' => 'SSLCommerz credentials are present. SSLCommerz has no ping endpoint; the first session validates them.',
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     * @return array{status: string, message: string, latency_ms: int|null, http: int}
+     */
+    private function probeBkash(array $credentials, string $mode): array
+    {
+        $base = $mode === 'live'
+            ? 'https://tokenized.pay.bka.sh/v1.2.0-beta'
+            : 'https://tokenized.sandbox.bka.sh/v1.2.0-beta';
+        $start = microtime(true);
+
+        try {
+            $response = Http::withHeaders([
+                'username' => (string) $credentials['username'],
+                'password' => (string) $credentials['password'],
+            ])->acceptJson()->asJson()->timeout(10)->post(
+                $base.'/tokenized/checkout/token/grant',
+                [
+                    'app_key' => (string) $credentials['app_key'],
+                    'app_secret' => (string) $credentials['app_secret'],
+                ],
+            );
+        } catch (Throwable $exception) {
+            return $this->probeUnreachable('bKash', $exception);
+        }
+
+        $latencyMs = $this->elapsedMs($start);
+
+        if ($response->failed() || ! is_string($response->json('id_token'))) {
+            return $this->probeRejected($latencyMs, 'bKash', $response->json('statusMessage'), $response->status());
+        }
+
+        return [
+            'status' => 'connected',
+            'latency_ms' => $latencyMs,
+            'http' => 200,
+            'message' => "bKash token issued in {$mode} mode.",
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     * @return array{status: string, message: string, latency_ms: int|null, http: int}
+     */
+    private function probePaystack(array $credentials, string $mode): array
+    {
+        $start = microtime(true);
+
+        try {
+            $response = Http::withToken((string) $credentials['secret_key'])
+                ->acceptJson()
+                ->timeout(10)
+                ->get('https://api.paystack.co/transaction', ['perPage' => 1]);
+        } catch (Throwable $exception) {
+            return $this->probeUnreachable('Paystack', $exception);
+        }
+
+        $latencyMs = $this->elapsedMs($start);
+
+        if ($response->failed()) {
+            return $this->probeRejected($latencyMs, 'Paystack', $response->json('message'), $response->status());
+        }
+
+        return [
+            'status' => 'connected',
+            'latency_ms' => $latencyMs,
+            'http' => 200,
+            'message' => "Paystack API reachable with the configured {$mode} key.",
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     * @return array{status: string, message: string, latency_ms: int|null, http: int}
+     */
+    private function probeMollie(array $credentials, string $mode): array
+    {
+        $start = microtime(true);
+
+        try {
+            $response = Http::withToken((string) $credentials['api_key'])
+                ->acceptJson()
+                ->timeout(10)
+                ->get('https://api.mollie.com/v2/payments', ['limit' => 1]);
+        } catch (Throwable $exception) {
+            return $this->probeUnreachable('Mollie', $exception);
+        }
+
+        $latencyMs = $this->elapsedMs($start);
+
+        if ($response->failed()) {
+            return $this->probeRejected($latencyMs, 'Mollie', $response->json('detail'), $response->status());
+        }
+
+        return [
+            'status' => 'connected',
+            'latency_ms' => $latencyMs,
+            'http' => 200,
+            'message' => "Mollie API reachable with the configured {$mode} key.",
+        ];
+    }
+
+    /** @return array{status: string, message: string, latency_ms: int|null, http: int} */
+    private function probeUnreachable(string $label, Throwable $exception): array
+    {
+        return [
+            'status' => 'error',
+            'latency_ms' => null,
+            'http' => 502,
+            'message' => "Could not reach {$label}: ".$exception->getMessage(),
+        ];
+    }
+
+    /** @return array{status: string, message: string, latency_ms: int|null, http: int} */
+    private function probeRejected(int $latencyMs, string $label, mixed $detail, int $status): array
+    {
+        return [
+            'status' => 'error',
+            'latency_ms' => $latencyMs,
+            'http' => 502,
+            'message' => "{$label} rejected the credentials: "
+                .(is_string($detail) ? $detail : 'HTTP '.$status),
+        ];
+    }
+
+    private function elapsedMs(float $start): int
+    {
+        return (int) round((microtime(true) - $start) * 1000);
+    }
+
+    /**
+     * Record a ping so the console can show the last result per mode.
+     *
+     * @param  array{status: string, message: string, latency_ms: int|null, http: int}  $result
+     */
+    private function rememberGatewayTest(string $gateway, string $mode, array $result): void
+    {
+        $settings = $this->storedSettings();
+        $gateways = is_array($settings['gateways'] ?? null) ? $settings['gateways'] : [];
+        $config = is_array($gateways[$gateway] ?? null) ? $gateways[$gateway] : [];
+        $lastTest = is_array($config['last_test'] ?? null) ? $config['last_test'] : [];
+
+        $lastTest[$mode] = [
+            'status' => $result['status'],
+            'latency_ms' => $result['latency_ms'],
+            'message' => $result['message'],
+            'at' => now()->toIso8601String(),
+        ];
+
+        $config['last_test'] = $lastTest;
+        $gateways[$gateway] = $config;
+        $settings['gateways'] = $gateways;
+
+        PlatformSetting::set('payment_gateway', $settings);
+    }
+
+    private function gatewayLabel(string $gateway): string
+    {
+        return match ($gateway) {
+            'stripe' => 'Stripe',
+            'paypal' => 'PayPal',
+            'razorpay' => 'Razorpay',
+            'sslcommerz' => 'SSLCommerz',
+            'bkash' => 'bKash',
+            'nagad' => 'Nagad',
+            'paystack' => 'Paystack',
+            'mollie' => 'Mollie',
+            'bank_transfer' => 'Bank transfer',
+            'cash' => 'Cash',
+            'mock' => 'Sandbox simulator',
+            default => ucfirst($gateway),
+        };
     }
 }

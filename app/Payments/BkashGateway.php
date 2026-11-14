@@ -17,6 +17,11 @@ use RuntimeException;
  */
 final class BkashGateway implements PaymentGateway
 {
+    public function __construct(
+        private readonly GatewayCredentials $credentials,
+        private readonly ?string $mode = null,
+    ) {}
+
     public function key(): string
     {
         return 'bkash';
@@ -24,15 +29,12 @@ final class BkashGateway implements PaymentGateway
 
     public function isConfigured(): bool
     {
-        return $this->appKey() !== null
-            && $this->appSecret() !== null
-            && $this->username() !== null
-            && $this->password() !== null;
+        return $this->credentials->isConfigured($this->key(), $this->mode());
     }
 
     public function mode(): string
     {
-        return config('services.bkash.mode', 'sandbox') === 'live' ? 'live' : 'sandbox';
+        return $this->mode ?? $this->credentials->clientMode($this->key());
     }
 
     public function createCheckout(Invoice $invoice, string $successUrl, string $cancelUrl): CheckoutSession
@@ -167,28 +169,28 @@ final class BkashGateway implements PaymentGateway
 
     private function appKey(): ?string
     {
-        $value = config('services.bkash.app_key');
+        $value = $this->credentials->resolve($this->key(), $this->mode())['app_key'] ?? null;
 
         return is_string($value) && $value !== '' ? $value : null;
     }
 
     private function appSecret(): ?string
     {
-        $value = config('services.bkash.app_secret');
+        $value = $this->credentials->resolve($this->key(), $this->mode())['app_secret'] ?? null;
 
         return is_string($value) && $value !== '' ? $value : null;
     }
 
     private function username(): ?string
     {
-        $value = config('services.bkash.username');
+        $value = $this->credentials->resolve($this->key(), $this->mode())['username'] ?? null;
 
         return is_string($value) && $value !== '' ? $value : null;
     }
 
     private function password(): ?string
     {
-        $value = config('services.bkash.password');
+        $value = $this->credentials->resolve($this->key(), $this->mode())['password'] ?? null;
 
         return is_string($value) && $value !== '' ? $value : null;
     }

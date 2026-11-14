@@ -21,6 +21,11 @@ final class StripeGateway implements PaymentGateway
 
     private const SIGNATURE_TOLERANCE_SECONDS = 300;
 
+    public function __construct(
+        private readonly GatewayCredentials $credentials,
+        private readonly ?string $mode = null,
+    ) {}
+
     public function key(): string
     {
         return 'stripe';
@@ -28,12 +33,12 @@ final class StripeGateway implements PaymentGateway
 
     public function isConfigured(): bool
     {
-        return $this->secret() !== null && $this->webhookSecret() !== null;
+        return $this->credentials->isConfigured($this->key(), $this->mode());
     }
 
     public function mode(): string
     {
-        return str_starts_with((string) $this->secret(), 'sk_live_') ? 'live' : 'sandbox';
+        return $this->mode ?? $this->credentials->clientMode($this->key());
     }
 
     public function createCheckout(Invoice $invoice, string $successUrl, string $cancelUrl): CheckoutSession
@@ -168,14 +173,14 @@ final class StripeGateway implements PaymentGateway
 
     private function secret(): ?string
     {
-        $secret = config('services.stripe.secret');
+        $secret = $this->credentials->resolve($this->key(), $this->mode())['secret_key'] ?? null;
 
         return is_string($secret) && $secret !== '' ? $secret : null;
     }
 
     private function webhookSecret(): ?string
     {
-        $secret = config('services.stripe.webhook_secret');
+        $secret = $this->credentials->resolve($this->key(), $this->mode())['webhook_secret'] ?? null;
 
         return is_string($secret) && $secret !== '' ? $secret : null;
     }
