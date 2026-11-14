@@ -22,6 +22,7 @@ final class PaymentGatewayManager
             'bkash' => new BkashGateway($credentials, $mode),
             'paystack' => new PaystackGateway($credentials, $mode),
             'mollie' => new MollieGateway($credentials, $mode),
+            'paddle' => new PaddleGateway($credentials, $mode),
             default => throw new InvalidArgumentException("Unsupported payment gateway [{$key}]."),
         };
     }

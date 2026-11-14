@@ -3,6 +3,7 @@
 namespace App\Payments;
 
 use App\Models\Invoice;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -76,6 +77,54 @@ final class PayPalGateway implements PaymentGateway
         return new CheckoutSession($orderId, $url, $this->key(), $this->mode());
     }
 
+    public function verifyTestPayment(string $reference): array
+    {
+        if ($this->clientId() === null || $this->clientSecret() === null) {
+            return [
+                'status' => 'unknown',
+                'message' => 'PayPal is not configured: the client id or client secret is missing.',
+            ];
+        }
+
+        try {
+            $response = $this->client()->get($this->base().'/v2/checkout/orders/'.rawurlencode($reference));
+        } catch (ConnectionException $exception) {
+            return ['status' => 'unknown', 'message' => 'Could not reach PayPal: '.$exception->getMessage()];
+        } catch (RuntimeException $exception) {
+            return ['status' => 'unknown', 'message' => $exception->getMessage()];
+        }
+
+        if ($response->failed()) {
+            return [
+                'status' => 'pending',
+                'message' => 'PayPal could not report the order status: '
+                    .($response->json('message') ?? 'HTTP '.$response->status()),
+            ];
+        }
+
+        $status = strtoupper((string) $response->json('status'));
+
+        if ($status === 'COMPLETED') {
+            return ['status' => 'paid', 'message' => 'PayPal captured the order.'];
+        }
+
+        if ($status === 'APPROVED') {
+            return $this->captureApprovedOrder($reference);
+        }
+
+        if (in_array($status, ['VOIDED', 'PAYER_ACTION_REQUIRED'], true)) {
+            return [
+                'status' => 'pending',
+                'message' => "PayPal reports the order as {$status}; the buyer still has a step to finish.",
+            ];
+        }
+
+        return [
+            'status' => 'pending',
+            'message' => 'PayPal is still waiting for the payment: '.($status ?: 'unknown status').'.',
+        ];
+    }
+
     public function verifyWebhook(Request $request): PaymentEvent
     {
         $webhookId = $this->webhookId();
@@ -147,6 +196,37 @@ final class PayPalGateway implements PaymentGateway
             providerReference: (string) ($capture->json('id') ?? $orderId),
             payload: $event->payload,
         );
+    }
+
+    /**
+     * Capture an order the buyer has approved, and report what happened. The
+     * status poll is read-only for our data: a capture that succeeds here is
+     * still only a test payment, settled by the webhook path in production.
+     *
+     * @return array{status: 'paid'|'pending'|'failed'|'unknown', message: string}
+     */
+    private function captureApprovedOrder(string $reference): array
+    {
+        try {
+            $capture = $this->client()->post(
+                $this->base().'/v2/checkout/orders/'.rawurlencode($reference).'/capture',
+                [],
+            );
+        } catch (ConnectionException $exception) {
+            return ['status' => 'pending', 'message' => 'PayPal approved the order but could not be reached to capture it: '.$exception->getMessage()];
+        } catch (RuntimeException $exception) {
+            return ['status' => 'unknown', 'message' => $exception->getMessage()];
+        }
+
+        if ($capture->successful() && strtoupper((string) $capture->json('status')) === 'COMPLETED') {
+            return ['status' => 'paid', 'message' => 'PayPal approved and captured the order.'];
+        }
+
+        return [
+            'status' => 'pending',
+            'message' => 'PayPal approved the order but the capture did not complete: '
+                .($capture->json('message') ?? 'HTTP '.$capture->status()).'.',
+        ];
     }
 
     /**

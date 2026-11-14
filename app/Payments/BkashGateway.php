@@ -3,6 +3,7 @@
 namespace App\Payments;
 
 use App\Models\Invoice;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -76,6 +77,55 @@ final class BkashGateway implements PaymentGateway
         }
 
         return new CheckoutSession($paymentId, $url, $this->key(), $this->mode());
+    }
+
+    public function verifyTestPayment(string $reference): array
+    {
+        if ($this->appKey() === null || $this->appSecret() === null || $this->username() === null || $this->password() === null) {
+            return [
+                'status' => 'unknown',
+                'message' => 'bKash is not configured: the app key, app secret, username or password is missing.',
+            ];
+        }
+
+        try {
+            // The status endpoint is authenticated, so the grant is repeated here
+            // exactly as createCheckout does it.
+            $response = $this->authorized()->post($this->base().'/tokenized/checkout/payment/status', [
+                'paymentID' => $reference,
+            ]);
+        } catch (ConnectionException $exception) {
+            return ['status' => 'unknown', 'message' => 'Could not reach bKash: '.$exception->getMessage()];
+        } catch (RuntimeException $exception) {
+            return ['status' => 'unknown', 'message' => $exception->getMessage()];
+        }
+
+        $payload = $response->json();
+
+        if ($response->failed() || ! is_array($payload)) {
+            return [
+                'status' => 'failed',
+                'message' => 'bKash rejected the status lookup: '
+                    .(is_array($payload)
+                        ? ((string) ($payload['statusMessage'] ?? '') ?: 'HTTP '.$response->status())
+                        : 'HTTP '.$response->status()),
+            ];
+        }
+
+        $status = strtolower((string) ($payload['transactionStatus'] ?? ''));
+
+        if ($status === 'completed') {
+            return ['status' => 'paid', 'message' => 'bKash confirms the transaction completed.'];
+        }
+
+        if (in_array($status, ['initiated', 'pending'], true)) {
+            return ['status' => 'pending', 'message' => "bKash reports the payment as {$status}."];
+        }
+
+        return [
+            'status' => 'failed',
+            'message' => 'bKash did not complete the payment: '.((string) $status ?: 'unknown status').'.',
+        ];
     }
 
     public function verifyWebhook(Request $request): PaymentEvent

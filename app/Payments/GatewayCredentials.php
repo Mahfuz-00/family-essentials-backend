@@ -36,6 +36,7 @@ final class GatewayCredentials
         'nagad' => ['merchant_id', 'public_key', 'private_key'],
         'paystack' => ['public_key', 'secret_key'],
         'mollie' => ['api_key', 'webhook_url'],
+        'paddle' => ['api_key', 'webhook_secret', 'price_id', 'test_price_id', 'client_token', 'default_payment_link'],
         'bank_transfer' => ['bank_name', 'account_name', 'account_number', 'routing_code', 'swift_bic', 'instructions'],
         'cash' => ['instructions', 'auto_mark_paid'],
         'mock' => ['simulate_failure', 'latency_ms'],
@@ -55,6 +56,9 @@ final class GatewayCredentials
         'nagad' => ['private_key'],
         'paystack' => ['secret_key'],
         'mollie' => ['api_key'],
+        // Paddle's client-side token is public by design — Paddle.js receives it
+        // in the browser — but the console still masks it like any credential.
+        'paddle' => ['api_key', 'webhook_secret', 'client_token'],
         'bank_transfer' => ['account_number'],
     ];
 
@@ -72,6 +76,26 @@ final class GatewayCredentials
         'bkash' => ['app_key', 'app_secret', 'username', 'password'],
         'paystack' => ['secret_key'],
         'mollie' => ['api_key'],
+        // The client-side token opens the checkout overlay, so a Paddle card
+        // without it cannot pay.
+        'paddle' => ['api_key', 'webhook_secret', 'price_id', 'client_token'],
+    ];
+
+    /**
+     * Fields a connectivity probe needs. Webhook secrets are deliberately absent:
+     * a ping checks the provider API, not the callback signature.
+     *
+     * @var array<string, list<string>>
+     */
+    private const PROBE_REQUIRED = [
+        'stripe' => ['secret_key'],
+        'paypal' => ['client_id', 'client_secret'],
+        'razorpay' => ['key_id', 'key_secret'],
+        'sslcommerz' => ['store_id', 'store_passwd'],
+        'bkash' => ['app_key', 'app_secret', 'username', 'password'],
+        'paystack' => ['secret_key'],
+        'mollie' => ['api_key'],
+        'paddle' => ['api_key', 'price_id'],
     ];
 
     /**
@@ -111,6 +135,14 @@ final class GatewayCredentials
         'mollie' => [
             'api_key' => 'services.mollie.api_key',
             'webhook_url' => 'services.mollie.webhook_url',
+        ],
+        'paddle' => [
+            'api_key' => 'services.paddle.api_key',
+            'webhook_secret' => 'services.paddle.webhook_secret',
+            'price_id' => 'services.paddle.price_id',
+            'test_price_id' => 'services.paddle.test_price_id',
+            'client_token' => 'services.paddle.client_token',
+            'default_payment_link' => 'services.paddle.default_payment_link',
         ],
     ];
 
@@ -179,6 +211,28 @@ final class GatewayCredentials
         }
 
         return true;
+    }
+
+    /**
+     * The fields a connectivity probe is still missing in this mode. This is a
+     * subset of isConfigured(): a ping never needs the webhook secret.
+     *
+     * @return list<string>
+     */
+    public function missingForProbe(string $gateway, string $mode): array
+    {
+        $required = self::PROBE_REQUIRED[$gateway] ?? null;
+
+        if ($required === null) {
+            return ['credentials'];
+        }
+
+        $resolved = $this->resolve($gateway, $mode);
+
+        return array_values(array_filter(
+            $required,
+            fn (string $field): bool => ! $this->isUsable($resolved[$field] ?? null),
+        ));
     }
 
     /**
@@ -280,7 +334,7 @@ final class GatewayCredentials
             $legacyMode = $this->legacyMode($config);
 
             foreach ($this->legacyFields($gateway, $config) as $field => $value) {
-                if (! array_key_exists($field, $sets[$legacyMode])) {
+                if (! array_key_exists($field, $sets[$legacyMode]) && $this->isUsable($value)) {
                     $sets[$legacyMode][$field] = $value;
                 }
             }
@@ -309,7 +363,10 @@ final class GatewayCredentials
             return [];
         }
 
-        return array_filter($set, static fn ($value): bool => ! is_array($value));
+        return array_filter(
+            $set,
+            fn ($value): bool => ! is_array($value) && $this->isUsable($value),
+        );
     }
 
     /**
@@ -350,8 +407,8 @@ final class GatewayCredentials
     /**
      * The mode the environment credentials belong to.
      *
-     * Stripe, Razorpay, Paystack and Mollie publish it in the key prefix; the
-     * others (and any gateway with no environment block at all) declare it.
+     * Stripe, Razorpay, Paystack, Mollie and Paddle publish it in the key prefix;
+     * the others (and any gateway with no environment block at all) declare it.
      */
     private function envMode(string $gateway): string
     {
@@ -360,6 +417,7 @@ final class GatewayCredentials
             'razorpay' => str_starts_with((string) config('services.razorpay.key_id'), 'rzp_live_') ? 'live' : 'sandbox',
             'paystack' => str_starts_with((string) config('services.paystack.secret_key'), 'sk_live_') ? 'live' : 'sandbox',
             'mollie' => str_starts_with((string) config('services.mollie.api_key'), 'live_') ? 'live' : 'sandbox',
+            'paddle' => str_starts_with((string) config('services.paddle.api_key'), 'pdl_live_') ? 'live' : 'sandbox',
             'paypal' => $this->declaredMode('services.paypal.mode'),
             'sslcommerz' => $this->declaredMode('services.sslcommerz.mode'),
             'bkash' => $this->declaredMode('services.bkash.mode'),

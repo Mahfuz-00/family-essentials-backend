@@ -140,6 +140,50 @@ class PaymentGatewaySettingsTest extends TestCase
         }
     }
 
+    public function test_global_save_without_gateways_keeps_the_saved_credentials(): void
+    {
+        $platform = $this->createPlatformAdmin();
+
+        PlatformSetting::set('payment_gateway', [
+            'active_gateway' => 'stripe',
+            'mode' => 'sandbox',
+            'currency' => 'USD',
+            'auto_billing_enabled' => true,
+            // Only Stripe is stored: a global save must keep that row instead of
+            // replacing the whole `gateways` map with an empty one.
+            'gateways' => [
+                'stripe' => [
+                    'enabled' => true,
+                    'sandbox' => true,
+                    'credentials' => [
+                        'sandbox' => ['secret_key' => 'sk_test_keep', 'webhook_secret' => 'whsec_keep'],
+                        'live' => ['secret_key' => 'sk_live_keep', 'webhook_secret' => 'whsec_live_keep'],
+                    ],
+                ],
+            ],
+        ]);
+
+        $response = $this->withToken($this->tokenFor($platform))
+            ->postJson('/api/v1/platform/settings/payment', [
+                'active_gateway' => 'stripe',
+                'mode' => 'live',
+                'currency' => 'EUR',
+                'auto_billing_enabled' => false,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.mode', 'live')
+            ->assertJsonPath('data.currency', 'EUR')
+            ->assertJsonPath('data.gateways.stripe.credentials.sandbox.secret_key', GatewayCredentials::MASK);
+
+        $stored = PlatformSetting::get('payment_gateway');
+
+        $this->assertSame('EUR', $stored['currency']);
+        $this->assertSame('sk_test_keep', $stored['gateways']['stripe']['credentials']['sandbox']['secret_key']);
+        $this->assertSame('sk_live_keep', $stored['gateways']['stripe']['credentials']['live']['secret_key']);
+        $this->assertStringNotContainsString('sk_test_keep', $response->getContent());
+        $this->assertStringNotContainsString('sk_live_keep', $response->getContent());
+    }
+
     public function test_sandbox_ping_uses_sandbox_credentials_and_live_ping_uses_live_credentials(): void
     {
         $platform = $this->createPlatformAdmin();
@@ -183,6 +227,43 @@ class PaymentGatewaySettingsTest extends TestCase
             && in_array('Bearer sk_live_db_secret', $request->header('Authorization'), true));
 
         Http::assertNotSent(fn ($request): bool => in_array('Bearer sk_test_from_env', $request->header('Authorization'), true));
+    }
+
+    public function test_a_ping_only_requires_the_fields_its_probe_uses(): void
+    {
+        $platform = $this->createPlatformAdmin();
+
+        // The webhook secret is absent: a balance probe never uses it, so the
+        // ping must still go out instead of reporting the gateway unconfigured.
+        PlatformSetting::set('payment_gateway', [
+            'gateways' => [
+                'stripe' => [
+                    'enabled' => true,
+                    'sandbox' => true,
+                    'credentials' => [
+                        'sandbox' => ['secret_key' => 'sk_test_probe_only'],
+                    ],
+                ],
+            ],
+        ]);
+
+        Http::fake([
+            'api.stripe.com/v1/balance' => Http::response(['object' => 'balance'], 200),
+        ]);
+
+        $this->withToken($this->tokenFor($platform))
+            ->postJson('/api/v1/platform/settings/payment/test', ['gateway' => 'stripe', 'mode' => 'sandbox'])
+            ->assertOk()
+            ->assertJsonPath('status', 'connected');
+
+        Http::assertSent(fn ($request): bool => in_array(
+            'Bearer sk_test_probe_only',
+            $request->header('Authorization'),
+            true,
+        ));
+
+        // Checkout still insists on the webhook secret, which is what webhooks use.
+        $this->assertFalse(app(GatewayCredentials::class)->isConfigured('stripe', 'sandbox'));
     }
 
     public function test_a_ping_records_last_test_per_mode_and_audits_every_outcome(): void

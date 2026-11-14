@@ -4,19 +4,44 @@ namespace App\Http\Controllers\Api\V1\Platform;
 
 use App\Audit\AuditRecorder;
 use App\Http\Controllers\Controller;
+use App\Models\Invoice;
 use App\Models\PlatformSetting;
 use App\Payments\GatewayCredentials;
+use App\Payments\PaddleGateway;
+use App\Payments\PaymentGatewayManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 use Throwable;
 
 class SettingsController extends Controller
 {
+    /**
+     * The gateways the console can run a sandbox payment against. Cash and bank
+     * transfer have no hosted checkout and Nagad has no driver, so asking for
+     * either is a 404 rather than a session that can never exist.
+     *
+     * @var list<string>
+     */
+    private const SANDBOX_GATEWAYS = [
+        'stripe',
+        'paypal',
+        'razorpay',
+        'sslcommerz',
+        'bkash',
+        'paystack',
+        'mollie',
+        'paddle',
+        'mock',
+    ];
+
     public function __construct(
         private readonly AuditRecorder $audit,
         private readonly GatewayCredentials $credentials,
+        private readonly PaymentGatewayManager $gateways,
     ) {}
 
     public function getSystemSettings(): JsonResponse
@@ -85,18 +110,18 @@ class SettingsController extends Controller
     public function updatePaymentGateway(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'active_gateway' => ['required', 'string', 'in:stripe,paypal,razorpay,sslcommerz,bkash,nagad,paystack,mollie,bank_transfer,mock,cash'],
+            'active_gateway' => ['required', 'string', 'in:stripe,paypal,razorpay,sslcommerz,bkash,nagad,paystack,mollie,paddle,bank_transfer,mock,cash'],
             'mode' => ['required', 'string', 'in:sandbox,live'],
             'currency' => ['required', 'string', 'size:3'],
-            'gateways' => ['required', 'array'],
+            'gateways' => ['sometimes', 'array'],
             'auto_billing_enabled' => ['required', 'boolean'],
         ]);
 
         $current = $this->storedSettings();
         $storedGateways = is_array($current['gateways'] ?? null) ? $current['gateways'] : [];
-        $submittedGateways = [];
+        $submittedGateways = $storedGateways;
 
-        foreach ($validated['gateways'] as $key => $config) {
+        foreach (($validated['gateways'] ?? []) as $key => $config) {
             if (! is_array($config)) {
                 continue;
             }
@@ -140,6 +165,16 @@ class SettingsController extends Controller
             'credentials.live' => ['sometimes', 'array'],
             ...$this->nonCredentialRules($gateway),
         ]);
+
+        if ($gateway === 'paddle') {
+            $credentials = is_array($validated['credentials'] ?? null) ? $validated['credentials'] : [];
+            $paddleError = $this->paddleKeyValidationError($credentials)
+                ?? $this->paddleDefaultLinkValidationError($validated);
+
+            if ($paddleError !== null) {
+                return response()->json(['message' => $paddleError], 422);
+            }
+        }
 
         $settings = $this->storedSettings();
         $gateways = is_array($settings['gateways'] ?? null) ? $settings['gateways'] : [];
@@ -202,6 +237,199 @@ class SettingsController extends Controller
             'message' => $result['message'],
             'timestamp' => now()->toIso8601String(),
         ], $result['http']);
+    }
+
+    /**
+     * Start a real payment against a provider's sandbox, so the console can walk
+     * the whole checkout rather than ping an endpoint.
+     *
+     * Two guarantees hold here. The credentials are resolved for `sandbox` mode
+     * explicitly, whatever the console's client-facing mode is, so a live key is
+     * never touched. And the invoice is transient — force-filled and never
+     * saved — so a test payment cannot appear in a household's billing history
+     * or be settled by a webhook.
+     */
+    public function startSandboxPayment(Request $request, string $gateway): JsonResponse
+    {
+        if (! in_array($gateway, self::SANDBOX_GATEWAYS, true)) {
+            abort(404, 'Payment gateway not found.');
+        }
+
+        [$amountCents, $currency] = $this->sandboxAmount($gateway);
+
+        // The provider redirects the browser here after payment. The token is the
+        // only handle the result page needs: it looks up the display-only invoice.
+        $token = (string) Str::ulid();
+        $frontend = rtrim((string) (config('app.frontend_url') ?: config('app.url')), '/');
+        // The token lives in the path: providers append their own query params to
+        // the redirect URL, and a query token can be lost or mangled by that.
+        $resultUrl = $frontend.'/sandbox/payment-result/'.$token.'?'.http_build_query([
+            'gateway' => $gateway,
+        ]);
+
+        // The mock gateway is the platform's own simulator: it never leaves the
+        // process, so there is no credential set to check and no HTTP call.
+        if ($gateway === 'mock') {
+            $reference = 'mock-'.Str::lower(Str::random(12));
+            $invoice = $this->sandboxInvoice($gateway, $amountCents, $currency);
+            $invoicePayload = $this->rememberSandboxInvoice($gateway, $invoice, $reference, $token);
+
+            $this->auditSandboxStart('mock', $amountCents, $currency, $reference, true);
+
+            return response()->json([
+                'data' => [
+                    'gateway' => 'mock',
+                    'mode' => 'sandbox',
+                    'reference' => $reference,
+                    'url' => null,
+                    'result_url' => $resultUrl,
+                    'amount_cents' => $amountCents,
+                    'currency' => $currency,
+                    'simulated' => true,
+                    'invoice' => $invoicePayload,
+                ],
+            ], 201);
+        }
+
+        $missing = $this->credentials->missingForProbe($gateway, 'sandbox');
+
+        if ($missing !== []) {
+            return response()->json([
+                'status' => 'unconfigured',
+                'message' => sprintf(
+                    '%s sandbox is missing: %s. Save the sandbox set for this gateway, or provide the environment variables, and start the sandbox payment again.',
+                    $this->gatewayLabel($gateway),
+                    implode(', ', $missing),
+                ),
+            ], 422);
+        }
+
+        $successUrl = $resultUrl.'&flow=success';
+        $cancelUrl = $resultUrl.'&flow=cancelled';
+
+        $invoice = $this->sandboxInvoice($gateway, $amountCents, $currency);
+        $driver = $this->gateways->gateway($gateway, 'sandbox');
+
+        try {
+            $session = $driver->createCheckout($invoice, $successUrl, $cancelUrl);
+        } catch (Throwable $exception) {
+            return response()->json(['message' => $exception->getMessage()], 502);
+        }
+
+        $reference = $session->reference();
+        $invoicePayload = $this->rememberSandboxInvoice($gateway, $invoice, $reference, $token);
+
+        $this->auditSandboxStart($gateway, $amountCents, $currency, $reference, false);
+
+        $payload = [
+            'gateway' => $gateway,
+            'mode' => 'sandbox',
+            'reference' => $reference,
+            'url' => $session->url,
+            'result_url' => $resultUrl,
+            'amount_cents' => $amountCents,
+            'currency' => $currency,
+            'simulated' => false,
+            'invoice' => $invoicePayload,
+        ];
+
+        // Paddle Checkout opens as a Paddle.js overlay, not as a redirect to the
+        // transaction URL, so the console needs the client-side token. It is
+        // public by design: it is the value the browser hands to Paddle.js.
+        if ($driver instanceof PaddleGateway) {
+            $payload['client_token'] = $driver->clientToken();
+        }
+
+        return response()->json(['data' => $payload], 201);
+    }
+
+    /**
+     * Poll one sandbox payment. Read-only: nothing local is settled and no audit
+     * row is written, because the console polls this every few seconds.
+     */
+    public function sandboxPaymentStatus(Request $request, string $gateway, string $reference): JsonResponse
+    {
+        if (! in_array($gateway, self::SANDBOX_GATEWAYS, true)) {
+            abort(404, 'Payment gateway not found.');
+        }
+
+        if ($gateway === 'mock') {
+            return response()->json([
+                'data' => [
+                    'gateway' => 'mock',
+                    'mode' => 'sandbox',
+                    'reference' => $reference,
+                    'status' => 'paid',
+                    'message' => 'The internal sandbox simulator confirms every test payment immediately.',
+                    'invoice' => $this->settleSandboxInvoice($gateway, $reference, 'paid'),
+                ],
+            ]);
+        }
+
+        try {
+            $result = $this->gateways->gateway($gateway, 'sandbox')->verifyTestPayment($reference);
+        } catch (Throwable $exception) {
+            // A poll must always answer with a status; the console has nothing to
+            // show if this endpoint throws instead.
+            $result = ['status' => 'unknown', 'message' => $exception->getMessage()];
+        }
+
+        return response()->json([
+            'data' => [
+                'gateway' => $gateway,
+                'mode' => 'sandbox',
+                'reference' => $reference,
+                'status' => (string) ($result['status'] ?? 'unknown'),
+                'message' => (string) ($result['message'] ?? ''),
+                'invoice' => $this->settleSandboxInvoice($gateway, $reference, (string) ($result['status'] ?? 'unknown')),
+            ],
+        ]);
+    }
+
+    /**
+     * The provider sends the browser back to the console's result page with a
+     * token. This returns the display-only invoice and the provider's latest
+     * status; the page shows the invoice, then returns to the gateway console.
+     */
+    public function sandboxPaymentResult(string $token): JsonResponse
+    {
+        $payload = Cache::get($this->sandboxResultKey($token));
+
+        if (! is_array($payload)) {
+            abort(404, 'Sandbox payment result not found.');
+        }
+
+        $gateway = (string) ($payload['gateway'] ?? '');
+        $reference = (string) ($payload['reference'] ?? '');
+
+        if (! in_array($gateway, self::SANDBOX_GATEWAYS, true) || $reference === '') {
+            abort(404, 'Sandbox payment result not found.');
+        }
+
+        if ($gateway === 'mock') {
+            $status = 'paid';
+            $message = 'The internal sandbox simulator confirms every test payment immediately.';
+        } else {
+            try {
+                $result = $this->gateways->gateway($gateway, 'sandbox')->verifyTestPayment($reference);
+                $status = (string) ($result['status'] ?? 'unknown');
+                $message = (string) ($result['message'] ?? '');
+            } catch (Throwable $exception) {
+                $status = 'unknown';
+                $message = $exception->getMessage();
+            }
+        }
+
+        return response()->json([
+            'data' => [
+                'gateway' => $gateway,
+                'mode' => 'sandbox',
+                'reference' => $reference,
+                'status' => $status,
+                'message' => $message,
+                'invoice' => $this->settleSandboxInvoice($gateway, $reference, $status),
+            ],
+        ]);
     }
 
     public function getEmailConfig(): JsonResponse
@@ -352,6 +580,16 @@ class SettingsController extends Controller
                 'sandbox' => true,
                 'api_key' => 'test_••••••••••••••••',
             ],
+            'paddle' => [
+                'enabled' => false,
+                'sandbox' => true,
+                'api_key' => '',
+                'webhook_secret' => '',
+                'price_id' => '',
+                'test_price_id' => '',
+                'client_token' => '',
+                'default_payment_link' => '',
+            ],
             'bank_transfer' => [
                 'enabled' => false,
                 'bank_name' => 'City Bank / Chase',
@@ -477,6 +715,12 @@ class SettingsController extends Controller
             'last_test' => [
                 'sandbox' => is_array($lastTest['sandbox'] ?? null) ? $lastTest['sandbox'] : null,
                 'live' => is_array($lastTest['live'] ?? null) ? $lastTest['live'] : null,
+            ],
+            // Whether each environment has every required credential, so the
+            // console can show a check mark without re-implementing the rules.
+            'configured' => [
+                'sandbox' => $this->isGatewayConfigured($gateway, 'sandbox'),
+                'live' => $this->isGatewayConfigured($gateway, 'live'),
             ],
         ]);
     }
@@ -604,7 +848,7 @@ class SettingsController extends Controller
             };
         }
 
-        if (! in_array($gateway, ['stripe', 'paypal', 'razorpay', 'sslcommerz', 'bkash', 'paystack', 'mollie'], true)) {
+        if (! in_array($gateway, ['stripe', 'paypal', 'razorpay', 'sslcommerz', 'bkash', 'paystack', 'mollie', 'paddle'], true)) {
             return [
                 'status' => 'unconfigured',
                 'latency_ms' => null,
@@ -613,12 +857,20 @@ class SettingsController extends Controller
             ];
         }
 
-        if (! $this->credentials->isConfigured($gateway, $mode)) {
+        $missing = $this->credentials->missingForProbe($gateway, $mode);
+
+        if ($missing !== []) {
             return [
                 'status' => 'unconfigured',
                 'latency_ms' => null,
                 'http' => 422,
-                'message' => "{$label} has no {$mode} credentials. Save the {$mode} set for this gateway, or provide the environment variables, and ping again.",
+                'message' => sprintf(
+                    '%s %s is missing: %s. Save the %s set for this gateway, or provide the environment variables, and ping again.',
+                    $label,
+                    $mode,
+                    implode(', ', $missing),
+                    $mode,
+                ),
             ];
         }
 
@@ -632,6 +884,7 @@ class SettingsController extends Controller
             'bkash' => $this->probeBkash($credentials, $mode),
             'paystack' => $this->probePaystack($credentials, $mode),
             'mollie' => $this->probeMollie($credentials, $mode),
+            'paddle' => $this->probePaddle($credentials, $mode),
             default => [
                 'status' => 'unconfigured',
                 'latency_ms' => null,
@@ -856,6 +1109,64 @@ class SettingsController extends Controller
         ];
     }
 
+    /**
+     * @param  array<string, mixed>  $credentials
+     * @return array{status: string, message: string, latency_ms: int|null, http: int}
+     */
+    private function probePaddle(array $credentials, string $mode): array
+    {
+        $base = $mode === 'live'
+            ? 'https://api.paddle.com'
+            : 'https://sandbox-api.paddle.com';
+        $rawKey = (string) ($credentials['api_key'] ?? '');
+        $apiKey = PaddleGateway::normaliseApiKey($rawKey, $mode);
+
+        if ($apiKey === null || (! str_starts_with($apiKey, 'pdl_sdbx_apikey_') && ! str_starts_with($apiKey, 'pdl_live_apikey_'))) {
+            return [
+                'status' => 'unconfigured',
+                'latency_ms' => null,
+                'http' => 422,
+                'message' => 'Paddle API key is malformed: it must start with pdl_sdbx_apikey_ (sandbox) or pdl_live_apikey_ (live).',
+            ];
+        }
+
+        if (strlen($apiKey) < 60) {
+            return [
+                'status' => 'unconfigured',
+                'latency_ms' => null,
+                'http' => 422,
+                'message' => sprintf(
+                    'The saved Paddle API key is incomplete (%d characters — public key ID only). Paddle keys are 69 characters and the secret is shown once at creation. Create a new Paddle API key and paste the whole value.',
+                    strlen(trim($rawKey)),
+                ),
+            ];
+        }
+
+        $start = microtime(true);
+
+        try {
+            $response = Http::withToken($apiKey)
+                ->acceptJson()
+                ->timeout(10)
+                ->get($base.'/transactions', ['per_page' => 1]);
+        } catch (Throwable $exception) {
+            return $this->probeUnreachable('Paddle', $exception);
+        }
+
+        $latencyMs = $this->elapsedMs($start);
+
+        if ($response->failed()) {
+            return $this->probeRejected($latencyMs, 'Paddle', $response->json('error.detail'), $response->status());
+        }
+
+        return [
+            'status' => 'connected',
+            'latency_ms' => $latencyMs,
+            'http' => 200,
+            'message' => "Paddle API reachable with the configured {$mode} API key.",
+        ];
+    }
+
     /** @return array{status: string, message: string, latency_ms: int|null, http: int} */
     private function probeUnreachable(string $label, Throwable $exception): array
     {
@@ -921,10 +1232,241 @@ class SettingsController extends Controller
             'nagad' => 'Nagad',
             'paystack' => 'Paystack',
             'mollie' => 'Mollie',
+            'paddle' => 'Paddle',
             'bank_transfer' => 'Bank transfer',
             'cash' => 'Cash',
             'mock' => 'Sandbox simulator',
             default => ucfirst($gateway),
         };
+    }
+
+    /**
+     * What one sandbox payment costs, in minor units. Each provider is given the
+     * smallest amount it will actually accept, in its own currency — this is the
+     * gateway's test amount, never a plan price.
+     *
+     * @return array{0: int, 1: string}
+     */
+    private function sandboxAmount(string $gateway): array
+    {
+        return match ($gateway) {
+            'razorpay' => [100, 'INR'],
+            'sslcommerz', 'bkash' => [1000, 'BDT'],
+            'paystack' => [10000, 'NGN'],
+            'mollie' => [100, 'EUR'],
+            'paddle' => [100, 'USD'],
+            default => [100, 'USD'],
+        };
+    }
+
+    /**
+     * A display-only invoice for a sandbox payment. It lives in the cache for two
+     * hours so every poll can show the same number and amount; it is deliberately
+     * never written to the billing ledger.
+     *
+     * @return array<string, mixed>
+     */
+    private function rememberSandboxInvoice(string $gateway, Invoice $invoice, string $reference, string $token): array
+    {
+        $payload = [
+            'invoice_number' => (string) $invoice->invoice_number,
+            'amount_cents' => (int) $invoice->amount_cents,
+            'currency' => (string) $invoice->currency,
+            'tier' => (string) $invoice->tier,
+            'billing_period' => (string) $invoice->billing_period,
+            'payment_method' => $gateway,
+            'gateway' => $gateway,
+            'status' => 'pending',
+            'issued_at' => now()->toIso8601String(),
+            'paid_at' => null,
+            'reference' => $reference,
+            'token' => $token,
+            'sandbox' => true,
+        ];
+
+        Cache::put($this->sandboxInvoiceKey($gateway, $reference), $payload, now()->addHours(2));
+        Cache::put($this->sandboxResultKey($token), $payload, now()->addHours(2));
+
+        return $payload;
+    }
+
+    /**
+     * Move the display-only invoice with the provider status. `paid_at` is stamped
+     * once and cached, so repeated polls show the same time.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function settleSandboxInvoice(string $gateway, string $reference, string $status): ?array
+    {
+        $key = $this->sandboxInvoiceKey($gateway, $reference);
+        $payload = Cache::get($key);
+
+        if (! is_array($payload)) {
+            return null;
+        }
+
+        if ($status === 'paid' && ($payload['status'] ?? null) !== 'paid') {
+            $payload['status'] = 'paid';
+            $payload['paid_at'] = now()->toIso8601String();
+        } elseif ($status === 'failed' && ($payload['status'] ?? null) !== 'failed') {
+            $payload['status'] = 'failed';
+        }
+
+        Cache::put($key, $payload, now()->addHours(2));
+
+        if (is_string($payload['token'] ?? null)) {
+            Cache::put($this->sandboxResultKey($payload['token']), $payload, now()->addHours(2));
+        }
+
+        return $payload;
+    }
+
+    /**
+     * Probe fields present, plus Paddle's full 69-character key. A pasted
+     * `apikey_…` value is only the public key ID and cannot authenticate.
+     *
+     * @param  array<string, mixed>  $credentials
+     */
+    private function paddleKeyValidationError(array $credentials): ?string
+    {
+        foreach (['sandbox', 'live'] as $mode) {
+            $set = $credentials[$mode] ?? null;
+
+            if (! is_array($set)) {
+                continue;
+            }
+
+            $key = $set['api_key'] ?? null;
+
+            if (! is_string($key) || trim($key) === '' || str_contains($key, '•')) {
+                continue; // empty or masked: keep the stored value
+            }
+
+            if (strlen((string) PaddleGateway::normaliseApiKey($key, $mode)) >= 60) {
+                continue;
+            }
+
+            return sprintf(
+                'That Paddle API key is incomplete (%d characters). It is the public key ID only — the secret is shown once when you create the key. Create a new Paddle API key and paste the whole 69-character value.',
+                strlen(trim($key)),
+            );
+        }
+
+        return null;
+    }
+
+    /**
+     * Paddle rejects a default payment link that is not https — including
+     * localhost — so saving one only produces a checkout that fails later.
+     * The link is checked in both credential sets and as a legacy flat field.
+     *
+     * @param  array<string, mixed>  $submitted
+     */
+    private function paddleDefaultLinkValidationError(array $submitted): ?string
+    {
+        $candidates = [$submitted['default_payment_link'] ?? null];
+        $credentials = $submitted['credentials'] ?? null;
+
+        if (is_array($credentials)) {
+            foreach (['sandbox', 'live'] as $mode) {
+                $set = $credentials[$mode] ?? null;
+
+                if (is_array($set)) {
+                    $candidates[] = $set['default_payment_link'] ?? null;
+                }
+            }
+        }
+
+        foreach ($candidates as $link) {
+            if (! is_string($link) || trim($link) === '' || str_contains($link, '•')) {
+                continue; // empty or masked: keep the stored value
+            }
+
+            if (str_starts_with(trim($link), 'https://')) {
+                continue;
+            }
+
+            return 'The Paddle default payment link must start with https:// — http and localhost URLs are rejected. '
+                .'The sandbox checkout opens as a Paddle.js overlay, so this page is never visited; any https URL works in sandbox.';
+        }
+
+        return null;
+    }
+
+    private function isGatewayConfigured(string $gateway, string $mode): bool
+    {
+        if ($this->credentials->missingForProbe($gateway, $mode) !== []) {
+            return false;
+        }
+
+        if ($gateway === 'paddle') {
+            $resolved = $this->credentials->resolve($gateway, $mode);
+            $key = (string) ($resolved['api_key'] ?? '');
+            $clientToken = trim((string) ($resolved['client_token'] ?? ''));
+
+            // The full key authenticates and the client token opens the overlay:
+            // without either the card cannot actually pay.
+            return strlen((string) PaddleGateway::normaliseApiKey($key, $mode)) >= 60
+                && $clientToken !== '';
+        }
+
+        return true;
+    }
+
+    private function sandboxInvoiceKey(string $gateway, string $reference): string
+    {
+        return 'sandbox-invoice:'.$gateway.':'.$reference;
+    }
+
+    private function sandboxResultKey(string $token): string
+    {
+        return 'sandbox-invoice:token:'.$token;
+    }
+
+    /**
+     * The invoice a sandbox payment is made against: an unsaved model, so it can
+     * never reach the billing ledger. The `tenant` relation is set explicitly so
+     * a driver that loads it does not query for a household this invoice does not
+     * have.
+     */
+    private function sandboxInvoice(string $gateway, int $amountCents, string $currency): Invoice
+    {
+        $invoice = new Invoice;
+
+        $invoice->forceFill([
+            // Providers such as Stripe reject an empty client_reference_id, so the
+            // unsaved test invoice carries a synthetic id. It is never persisted.
+            'id' => random_int(900_000_000, 999_999_999),
+            'tenant_id' => 0,
+            'invoice_number' => 'TEST-'.strtoupper($gateway).'-'.Str::upper(Str::random(8)),
+            'amount_cents' => $amountCents,
+            'currency' => $currency,
+            'tier' => 'family',
+            'billing_period' => 'monthly',
+            'status' => 'pending',
+            'payment_method' => $gateway,
+        ]);
+
+        $invoice->setRelation('tenant', null);
+
+        return $invoice;
+    }
+
+    /** Log a sandbox payment start — the reference and amount only, never a secret. */
+    private function auditSandboxStart(
+        string $gateway,
+        int $amountCents,
+        string $currency,
+        string $reference,
+        bool $simulated,
+    ): void {
+        $this->audit->record('platform.payment_gateway_sandbox_payment_started', [
+            'gateway' => $gateway,
+            'mode' => 'sandbox',
+            'amount_cents' => $amountCents,
+            'currency' => $currency,
+            'reference' => $reference,
+            'simulated' => $simulated,
+        ], 'info');
     }
 }

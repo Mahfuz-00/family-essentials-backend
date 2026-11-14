@@ -96,6 +96,45 @@ final class StripeGateway implements PaymentGateway
         return new CheckoutSession($id, $url, $this->key(), $this->mode());
     }
 
+    public function verifyTestPayment(string $reference): array
+    {
+        $secret = $this->secret();
+
+        if ($secret === null) {
+            return ['status' => 'unknown', 'message' => 'Stripe is not configured: the secret key is missing.'];
+        }
+
+        try {
+            $response = Http::withToken($secret)
+                ->acceptJson()
+                ->timeout(20)
+                ->get(self::API_BASE.'/checkout/sessions/'.rawurlencode($reference));
+        } catch (ConnectionException $exception) {
+            return ['status' => 'unknown', 'message' => 'Could not reach Stripe: '.$exception->getMessage()];
+        }
+
+        if ($response->failed()) {
+            return [
+                'status' => 'unknown',
+                'message' => 'Stripe rejected the status lookup: '
+                    .($response->json('error.message') ?? 'HTTP '.$response->status()),
+            ];
+        }
+
+        $paymentStatus = $response->json('payment_status');
+        $status = $response->json('status');
+
+        if ($paymentStatus === 'paid' || $status === 'complete') {
+            return ['status' => 'paid', 'message' => 'Stripe confirms the checkout session was paid.'];
+        }
+
+        if ($status === 'expired') {
+            return ['status' => 'failed', 'message' => 'The Stripe checkout session expired before it was paid.'];
+        }
+
+        return ['status' => 'pending', 'message' => 'Stripe is still waiting for the payment.'];
+    }
+
     public function verifyWebhook(Request $request): PaymentEvent
     {
         $secret = $this->requireWebhookSecret();

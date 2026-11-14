@@ -116,12 +116,18 @@ Route::prefix('v1')->group(function () {
         });
     });
 
-    // Public marketing endpoints (leads & active announcement banners)
+    // Public marketing endpoints (leads, active announcement banners, and public blog)
     Route::post('marketing/subscribe', [MarketingPublicController::class, 'subscribe'])->middleware('throttle:10,1');
     Route::get('marketing/announcements/active', [MarketingPublicController::class, 'activeAnnouncements']);
+    Route::get('marketing/blog', [MarketingPublicController::class, 'blogIndex']);
+    Route::get('marketing/blog/{slug}', [MarketingPublicController::class, 'blogShow']);
 
     // Public RFC 5545 iCalendar feed (Gap A)
     Route::get('calendar/feed/{token}', [CalendarFeedController::class, 'feed']);
+
+    // Token-only sandbox invoice page: the provider redirect lands here with no
+    // session, so the unguessable token is the capability that reveals the invoice.
+    Route::get('sandbox-payment-result/{token}', [PlatformSettingsController::class, 'sandboxPaymentResult']);
 
     // ---- Platform Admin (landlord) -------------------------------------
     Route::middleware(['auth:sanctum', 'abilities:dashboard', 'platform.admin'])
@@ -151,6 +157,10 @@ Route::prefix('v1')->group(function () {
             Route::post('settings/payment', [PlatformSettingsController::class, 'updatePaymentGateway']);
             Route::post('settings/payment/test', [PlatformSettingsController::class, 'testPaymentGateway']);
             Route::post('settings/payment/{gateway}', [PlatformSettingsController::class, 'updateGateway']);
+
+            // Sandbox payment: a real provider checkout the console walks end to end.
+            Route::post('settings/payment/{gateway}/sandbox-payment', [PlatformSettingsController::class, 'startSandboxPayment']);
+            Route::get('settings/payment/{gateway}/sandbox-payment/{reference}', [PlatformSettingsController::class, 'sandboxPaymentStatus']);
 
             Route::get('settings/email', [PlatformSettingsController::class, 'getEmailConfig']);
             Route::post('settings/email', [PlatformSettingsController::class, 'updateEmailConfig']);
@@ -192,6 +202,12 @@ Route::prefix('v1')->group(function () {
 
             Route::get('marketing/referrals', [PlatformMarketingController::class, 'getReferralSettings']);
             Route::post('marketing/referrals', [PlatformMarketingController::class, 'updateReferralSettings']);
+
+            Route::get('marketing/blog', [PlatformMarketingController::class, 'blogPosts']);
+            Route::post('marketing/blog', [PlatformMarketingController::class, 'storeBlogPost']);
+            Route::patch('marketing/blog/{id}', [PlatformMarketingController::class, 'updateBlogPost']);
+            Route::post('marketing/blog/{id}/toggle', [PlatformMarketingController::class, 'toggleBlogPost']);
+            Route::delete('marketing/blog/{id}', [PlatformMarketingController::class, 'deleteBlogPost']);
 
             // ---- Feedback inbox: what households are telling us -------------
             Route::get('feedback', [PlatformFeedbackController::class, 'index']);

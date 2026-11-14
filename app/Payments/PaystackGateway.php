@@ -3,6 +3,7 @@
 namespace App\Payments;
 
 use App\Models\Invoice;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
@@ -85,6 +86,46 @@ final class PaystackGateway implements PaymentGateway
         }
 
         return new CheckoutSession($reference, $url, $this->key(), $this->mode());
+    }
+
+    public function verifyTestPayment(string $reference): array
+    {
+        $secret = $this->secretKey();
+
+        if ($secret === null) {
+            return ['status' => 'unknown', 'message' => 'Paystack is not configured: the secret key is missing.'];
+        }
+
+        try {
+            $response = Http::withToken($secret)
+                ->acceptJson()
+                ->timeout(20)
+                ->get(self::API_BASE.'/transaction/verify/'.rawurlencode($reference));
+        } catch (ConnectionException $exception) {
+            return ['status' => 'unknown', 'message' => 'Could not reach Paystack: '.$exception->getMessage()];
+        }
+
+        if ($response->failed()) {
+            return [
+                'status' => 'unknown',
+                'message' => 'Paystack rejected the status lookup: '
+                    .($response->json('message') ?? 'HTTP '.$response->status()),
+            ];
+        }
+
+        // Paystack answers `status: true` plus `data.status`; only the inner value
+        // says whether the money moved.
+        $status = strtolower((string) $response->json('data.status'));
+
+        if ($status === 'success') {
+            return ['status' => 'paid', 'message' => 'Paystack confirms the transaction succeeded.'];
+        }
+
+        if ($status === 'failed') {
+            return ['status' => 'failed', 'message' => 'Paystack reports the transaction failed.'];
+        }
+
+        return ['status' => 'pending', 'message' => 'Paystack is still waiting for the payment.'];
     }
 
     public function verifyWebhook(Request $request): PaymentEvent

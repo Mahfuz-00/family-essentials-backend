@@ -3,6 +3,7 @@
 namespace App\Payments;
 
 use App\Models\Invoice;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
@@ -78,6 +79,44 @@ final class MollieGateway implements PaymentGateway
         }
 
         return new CheckoutSession($id, $url, $this->key(), $this->mode());
+    }
+
+    public function verifyTestPayment(string $reference): array
+    {
+        $apiKey = $this->apiKey();
+
+        if ($apiKey === null) {
+            return ['status' => 'unknown', 'message' => 'Mollie is not configured: the API key is missing.'];
+        }
+
+        try {
+            $response = Http::withToken($apiKey)
+                ->acceptJson()
+                ->timeout(20)
+                ->get(self::API_BASE.'/payments/'.rawurlencode($reference));
+        } catch (ConnectionException $exception) {
+            return ['status' => 'unknown', 'message' => 'Could not reach Mollie: '.$exception->getMessage()];
+        }
+
+        if ($response->failed()) {
+            return [
+                'status' => 'unknown',
+                'message' => 'Mollie rejected the status lookup: '
+                    .($response->json('detail') ?? 'HTTP '.$response->status()),
+            ];
+        }
+
+        $status = strtolower((string) $response->json('status'));
+
+        if ($status === 'paid') {
+            return ['status' => 'paid', 'message' => 'Mollie confirms the payment was paid.'];
+        }
+
+        if (in_array($status, ['failed', 'canceled', 'expired'], true)) {
+            return ['status' => 'failed', 'message' => "The Mollie payment ended as {$status}."];
+        }
+
+        return ['status' => 'pending', 'message' => 'Mollie is still waiting for the payment.'];
     }
 
     public function verifyWebhook(Request $request): PaymentEvent

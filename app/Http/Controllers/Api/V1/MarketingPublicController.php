@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Http\Controllers\Api\V1\Platform\MarketingController as PlatformMarketingController;
 use App\Http\Controllers\Controller;
 use App\Models\MarketingAnnouncement;
 use App\Models\MarketingLead;
@@ -61,6 +62,45 @@ class MarketingPublicController extends Controller
 
         return response()->json([
             'data' => $announcements,
+        ]);
+    }
+
+    /**
+     * Get published blog posts for the public marketing website.
+     */
+    public function blogIndex(Request $request): JsonResponse
+    {
+        $posts = collect(PlatformMarketingController::getStoredBlogPosts())
+            ->filter(fn (array $post) => (bool) ($post['is_published'] ?? true))
+            ->when($request->filled('category') && $request->string('category') !== 'all', function ($collection) use ($request) {
+                $cat = strtolower(trim($request->string('category')));
+
+                return $collection->filter(fn (array $post) => strtolower($post['category'] ?? '') === $cat);
+            })
+            ->values()
+            ->all();
+
+        return response()->json([
+            'data' => $posts,
+        ]);
+    }
+
+    /**
+     * Get a single published blog post by its URL slug.
+     */
+    public function blogShow(string $slug): JsonResponse
+    {
+        $post = collect(PlatformMarketingController::getStoredBlogPosts())
+            ->first(fn (array $item) => ($item['slug'] ?? '') === $slug && (bool) ($item['is_published'] ?? true));
+
+        if (! $post) {
+            return response()->json([
+                'message' => 'Blog article not found.',
+            ], 404);
+        }
+
+        return response()->json([
+            'data' => $post,
         ]);
     }
 }

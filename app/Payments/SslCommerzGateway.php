@@ -3,6 +3,7 @@
 namespace App\Payments;
 
 use App\Models\Invoice;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
@@ -91,7 +92,68 @@ final class SslCommerzGateway implements PaymentGateway
             throw new RuntimeException('SSLCommerz returned no GatewayPageURL.');
         }
 
-        return new CheckoutSession((string) $sessionKey, $url, $this->key(), $this->mode());
+        // A payment is looked up by `tran_id`, not by the session key, so the
+        // session carries the transaction id as its reference.
+        return new CheckoutSession((string) $sessionKey, $url, $this->key(), $this->mode(), $tranId);
+    }
+
+    public function verifyTestPayment(string $reference): array
+    {
+        $storeId = $this->storeId();
+        $storePassword = $this->storePassword();
+
+        if ($storeId === null || $storePassword === null) {
+            return ['status' => 'unknown', 'message' => 'SSLCommerz is not configured: the store id or store password is missing.'];
+        }
+
+        try {
+            $response = Http::acceptJson()->timeout(20)->get(
+                $this->base().'/validator/api/merchantTransIDvalidationAPI.php',
+                [
+                    'tran_id' => $reference,
+                    'store_id' => $storeId,
+                    'store_passwd' => $storePassword,
+                    'format' => 'json',
+                    'v' => 1,
+                ],
+            );
+        } catch (ConnectionException $exception) {
+            return ['status' => 'unknown', 'message' => 'Could not reach SSLCommerz: '.$exception->getMessage()];
+        }
+
+        $payload = $response->json();
+
+        if ($response->failed() || ! is_array($payload)) {
+            return [
+                'status' => 'unknown',
+                'message' => 'SSLCommerz rejected the status lookup: HTTP '.$response->status(),
+            ];
+        }
+
+        // The transaction-query API nests the record under `element` (an array of
+        // one, or a single object); the top-level `status` is empty for it.
+        $element = $payload['element'] ?? null;
+        $record = null;
+
+        if (is_array($element)) {
+            $candidate = $element[0] ?? $element;
+            $record = is_array($candidate) ? $candidate : null;
+        }
+
+        $status = strtoupper((string) ($record['status'] ?? $payload['status'] ?? ''));
+
+        if (in_array($status, ['VALID', 'VALIDATED'], true)) {
+            return ['status' => 'paid', 'message' => 'SSLCommerz validated the transaction.'];
+        }
+
+        if (in_array($status, ['FAILED', 'CANCELLED'], true)) {
+            return ['status' => 'failed', 'message' => "SSLCommerz reports the transaction as {$status}."];
+        }
+
+        return [
+            'status' => 'pending',
+            'message' => 'SSLCommerz has no completed transaction yet: '.($status ?: 'unknown status').'.',
+        ];
     }
 
     public function verifyWebhook(Request $request): PaymentEvent

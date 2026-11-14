@@ -390,7 +390,7 @@ class InvoiceController extends Controller
         $validated = $request->validate([
             'tier' => ['required', 'string', 'in:starter,plus,family,family_plus,enterprise'],
             'billing_period' => ['nullable', 'string', 'in:monthly,annual,yearly'],
-            'payment_method' => ['nullable', 'string', 'in:credit_card,cash,card,mock,stripe,paypal,razorpay,sslcommerz,bkash,nagad,paystack,mollie,bank_transfer'],
+            'payment_method' => ['nullable', 'string', 'in:credit_card,cash,card,mock,stripe,paypal,razorpay,sslcommerz,bkash,nagad,paystack,mollie,paddle,bank_transfer'],
             'last4' => ['nullable', 'string'],
         ]);
 

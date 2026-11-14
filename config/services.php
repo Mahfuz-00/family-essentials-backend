@@ -71,6 +71,15 @@ return [
         'webhook_url' => env('MOLLIE_WEBHOOK_URL'),
     ],
 
+    'paddle' => [
+        'api_key' => env('PADDLE_API_KEY'),
+        'webhook_secret' => env('PADDLE_WEBHOOK_SECRET'),
+        'price_id' => env('PADDLE_PRICE_ID'),
+        'test_price_id' => env('PADDLE_TEST_PRICE_ID'),
+        'client_token' => env('PADDLE_CLIENT_TOKEN'),
+        'default_payment_link' => env('PADDLE_DEFAULT_PAYMENT_LINK'),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),
